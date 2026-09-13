@@ -826,6 +826,11 @@ small {
   user-select: none;
   animation: hudSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.teleop-hud.is-collapsed {
+  min-width: 250px;
+  padding: 8px 12px;
+  gap: 0;
+}
 
 @keyframes hudSlideUp {
   from {
@@ -844,6 +849,19 @@ small {
   justify-content: space-between;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 8px;
+  cursor: grab;
+  touch-action: none;
+}
+.teleop-hud.is-collapsed .teleop-hud-header {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.teleop-hud-header:active {
+  cursor: grabbing;
+}
+.hud-drag-handle {
+  color: #64748b;
+  margin-right: 2px;
 }
 .teleop-hud-title {
   display: flex;
@@ -864,10 +882,32 @@ small {
   color: #ffffff;
   letter-spacing: 0.5px;
 }
-.teleop-hud-match {
+.teleop-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hud-goal-tag {
   font-size: 10px;
   color: #38bdf8;
   font-weight: 600;
+}
+.hud-action-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: #94a3b8;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+.hud-action-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #f8fafc;
 }
 
 .teleop-hud-controls {
@@ -994,6 +1034,28 @@ small {
 }
 .teleop-claw-btn.is-clamped .claw-key {
   color: #6ee7b7;
+}
+.teleop-claw-btn.is-ready {
+  background: #064e3b;
+  border-color: #34d399;
+  color: #6ee7b7;
+  animation: readyPulse 1.2s infinite ease-in-out;
+}
+.teleop-claw-btn.is-ready .claw-key {
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.25);
+}
+@keyframes readyPulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(52, 211, 153, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(52, 211, 153, 0.75);
+  }
+}
+.nearby-indicator {
+  color: #34d399;
+  font-weight: 600;
 }
 
 .teleop-hud-footer {

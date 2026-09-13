@@ -23,6 +23,9 @@ import {
   Focus,
   Grid2X2,
   Bot as Grip,
+  GripHorizontal,
+  Maximize2,
+  Minus,
   Layers3,
   ListOrdered,
   LoaderCircle,
@@ -233,6 +236,41 @@ export default function App() {
   const matchedCount = isTeleop && simulation.current
     ? simulation.current.evaluate().filter((c) => c.passed).length
     : 0;
+  const [hudCollapsed, setHudCollapsed] = useState(false);
+  const [hudPos, setHudPos] = useState<{ x: number; y: number } | null>(null);
+  const isDraggingHud = useRef(false);
+  const hudDragOffset = useRef({ x: 0, y: 0 });
+
+  const handlePointerDownHeader = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    isDraggingHud.current = true;
+    const hudEl = e.currentTarget.closest('.teleop-hud') as HTMLElement;
+    if (hudEl) {
+      const rect = hudEl.getBoundingClientRect();
+      hudDragOffset.current = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
+  };
+
+  const handlePointerMoveHeader = (e: React.PointerEvent) => {
+    if (!isDraggingHud.current) return;
+    const parentRect = host.current?.parentElement?.getBoundingClientRect() ?? {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+    const newX = Math.max(10, Math.min(parentRect.width - 150, e.clientX - parentRect.left - hudDragOffset.current.x));
+    const newY = Math.max(10, Math.min(parentRect.height - 60, e.clientY - parentRect.top - hudDragOffset.current.y));
+    setHudPos({ x: newX, y: newY });
+  };
+
+  const handlePointerUpHeader = (e: React.PointerEvent) => {
+    isDraggingHud.current = false;
+  };
   const latest = snapshot.result ?? null;
   const worldKey = JSON.stringify({
     mission: project.mission,
@@ -1061,187 +1099,224 @@ export default function App() {
             <span>{snapshot.phase}</span>
           </div>
           {isTeleop && (
-            <div className="teleop-hud" role="region" aria-label="Direct drive controls">
-              <div className="teleop-hud-header">
+            <div
+              className={`teleop-hud ${hudCollapsed ? 'is-collapsed' : ''}`}
+              role="region"
+              aria-label="Direct drive controls"
+              style={
+                hudPos
+                  ? { left: `${hudPos.x}px`, top: `${hudPos.y}px`, right: 'auto', bottom: 'auto' }
+                  : undefined
+              }
+            >
+              <div
+                className="teleop-hud-header"
+                onPointerDown={handlePointerDownHeader}
+                onPointerMove={handlePointerMoveHeader}
+                onPointerUp={handlePointerUpHeader}
+                title="Click and drag to move HUD window"
+              >
                 <div className="teleop-hud-title">
+                  <GripHorizontal size={14} className="hud-drag-handle" />
                   <Gamepad2 size={15} />
                   <span>DIRECT DRIVE</span>
                   <span className="teleop-live-badge">MANUAL</span>
                 </div>
-                <div className="teleop-hud-match">
-                  <span className="mono">Goal: {matchedCount}/3 placed</span>
-                </div>
-              </div>
-
-              <div className="teleop-hud-controls">
-                {/* Horizontal / Planar D-Pad */}
-                <div className="teleop-control-block">
-                  <span className="teleop-block-title">PLANAR (W/A/S/D)</span>
-                  <div className="teleop-dpad">
-                    <button
-                      type="button"
-                      className={`teleop-btn dpad-up ${activeKeys.forward ? 'is-active' : ''}`}
-                      title="Forward (+Z) [W / ↑]"
-                      onPointerDown={() => {
-                        teleopNudge('forward');
-                        teleopKeys.current.forward = true;
-                        setActiveKeys((k) => ({ ...k, forward: true }));
-                      }}
-                      onPointerUp={() => {
-                        teleopKeys.current.forward = false;
-                        setActiveKeys((k) => ({ ...k, forward: false }));
-                      }}
-                      onPointerLeave={() => {
-                        teleopKeys.current.forward = false;
-                        setActiveKeys((k) => ({ ...k, forward: false }));
-                      }}
-                    >
-                      <ArrowUp size={14} />
-                      <span className="btn-key">W</span>
-                    </button>
-                    <div className="dpad-mid-row">
-                      <button
-                        type="button"
-                        className={`teleop-btn dpad-left ${activeKeys.left ? 'is-active' : ''}`}
-                        title="Left (-X) [A / ←]"
-                        onPointerDown={() => {
-                          teleopNudge('left');
-                          teleopKeys.current.left = true;
-                          setActiveKeys((k) => ({ ...k, left: true }));
-                        }}
-                        onPointerUp={() => {
-                          teleopKeys.current.left = false;
-                          setActiveKeys((k) => ({ ...k, left: false }));
-                        }}
-                        onPointerLeave={() => {
-                          teleopKeys.current.left = false;
-                          setActiveKeys((k) => ({ ...k, left: false }));
-                        }}
-                      >
-                        <ArrowLeft size={14} />
-                        <span className="btn-key">A</span>
-                      </button>
-                      <div className="dpad-hub" />
-                      <button
-                        type="button"
-                        className={`teleop-btn dpad-right ${activeKeys.right ? 'is-active' : ''}`}
-                        title="Right (+X) [D / →]"
-                        onPointerDown={() => {
-                          teleopNudge('right');
-                          teleopKeys.current.right = true;
-                          setActiveKeys((k) => ({ ...k, right: true }));
-                        }}
-                        onPointerUp={() => {
-                          teleopKeys.current.right = false;
-                          setActiveKeys((k) => ({ ...k, right: false }));
-                        }}
-                        onPointerLeave={() => {
-                          teleopKeys.current.right = false;
-                          setActiveKeys((k) => ({ ...k, right: false }));
-                        }}
-                      >
-                        <ArrowRight size={14} />
-                        <span className="btn-key">D</span>
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      className={`teleop-btn dpad-down ${activeKeys.backward ? 'is-active' : ''}`}
-                      title="Backward (-Z) [S / ↓]"
-                      onPointerDown={() => {
-                        teleopNudge('backward');
-                        teleopKeys.current.backward = true;
-                        setActiveKeys((k) => ({ ...k, backward: true }));
-                      }}
-                      onPointerUp={() => {
-                        teleopKeys.current.backward = false;
-                        setActiveKeys((k) => ({ ...k, backward: false }));
-                      }}
-                      onPointerLeave={() => {
-                        teleopKeys.current.backward = false;
-                        setActiveKeys((k) => ({ ...k, backward: false }));
-                      }}
-                    >
-                      <ArrowDown size={14} />
-                      <span className="btn-key">S</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Vertical Height Controls */}
-                <div className="teleop-control-block">
-                  <span className="teleop-block-title">HEIGHT (Q/E)</span>
-                  <div className="teleop-col">
-                    <button
-                      type="button"
-                      className={`teleop-btn vert-up ${activeKeys.up ? 'is-active' : ''}`}
-                      title="Lift arm (+Y) [Q]"
-                      onPointerDown={() => {
-                        teleopNudge('up');
-                        teleopKeys.current.up = true;
-                        setActiveKeys((k) => ({ ...k, up: true }));
-                      }}
-                      onPointerUp={() => {
-                        teleopKeys.current.up = false;
-                        setActiveKeys((k) => ({ ...k, up: false }));
-                      }}
-                      onPointerLeave={() => {
-                        teleopKeys.current.up = false;
-                        setActiveKeys((k) => ({ ...k, up: false }));
-                      }}
-                    >
-                      <ArrowUp size={14} />
-                      <span className="btn-key">Q</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`teleop-btn vert-down ${activeKeys.down ? 'is-active' : ''}`}
-                      title="Lower arm (-Y) [E]"
-                      onPointerDown={() => {
-                        teleopNudge('down');
-                        teleopKeys.current.down = true;
-                        setActiveKeys((k) => ({ ...k, down: true }));
-                      }}
-                      onPointerUp={() => {
-                        teleopKeys.current.down = false;
-                        setActiveKeys((k) => ({ ...k, down: false }));
-                      }}
-                      onPointerLeave={() => {
-                        teleopKeys.current.down = false;
-                        setActiveKeys((k) => ({ ...k, down: false }));
-                      }}
-                    >
-                      <ArrowDown size={14} />
-                      <span className="btn-key">E</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Gripper Claw Toggle */}
-                <div className="teleop-control-block">
-                  <span className="teleop-block-title">CLAW (SPACE)</span>
+                <div className="teleop-hud-actions">
+                  <span className="mono hud-goal-tag">Goal: {matchedCount}/3 placed</span>
                   <button
                     type="button"
-                    className={`teleop-claw-btn ${snapshot.grip ? 'is-clamped' : ''}`}
-                    title="Toggle Claw [Space]"
-                    onClick={() => {
-                      simulation.current?.teleopToggleGrip();
-                      setSnapshot(simulation.current!.snapshot());
-                    }}
+                    className="hud-action-btn"
+                    title={hudCollapsed ? 'Expand controls' : 'Minimize HUD (free view)'}
+                    onClick={() => setHudCollapsed((c) => !c)}
                   >
-                    <Grip size={20} />
-                    <span className="claw-status-txt">{snapshot.grip ? 'RELEASE' : 'GRASP'}</span>
-                    <span className="btn-key claw-key">SPACE</span>
+                    {hudCollapsed ? <Maximize2 size={13} /> : <Minus size={13} />}
                   </button>
                 </div>
               </div>
 
-              <div className="teleop-hud-footer">
-                <span className="mono teleop-coords">
-                  X:{snapshot.position.x.toFixed(2)} Y:{snapshot.position.y.toFixed(2)} Z:{snapshot.position.z.toFixed(2)}
-                </span>
-                <span className="teleop-hint">Keys: W/S/A/D • Q/E • Space</span>
-              </div>
+              {!hudCollapsed && (
+                <>
+                  <div className="teleop-hud-controls">
+                    {/* Horizontal / Planar D-Pad */}
+                    <div className="teleop-control-block">
+                      <span className="teleop-block-title">PLANAR (W/A/S/D)</span>
+                      <div className="teleop-dpad">
+                        <button
+                          type="button"
+                          className={`teleop-btn dpad-up ${activeKeys.forward ? 'is-active' : ''}`}
+                          title="Forward (+Z) [W / ↑]"
+                          onPointerDown={() => {
+                            teleopNudge('forward');
+                            teleopKeys.current.forward = true;
+                            setActiveKeys((k) => ({ ...k, forward: true }));
+                          }}
+                          onPointerUp={() => {
+                            teleopKeys.current.forward = false;
+                            setActiveKeys((k) => ({ ...k, forward: false }));
+                          }}
+                          onPointerLeave={() => {
+                            teleopKeys.current.forward = false;
+                            setActiveKeys((k) => ({ ...k, forward: false }));
+                          }}
+                        >
+                          <ArrowUp size={14} />
+                          <span className="btn-key">W</span>
+                        </button>
+                        <div className="dpad-mid-row">
+                          <button
+                            type="button"
+                            className={`teleop-btn dpad-left ${activeKeys.left ? 'is-active' : ''}`}
+                            title="Left (-X) [A / ←]"
+                            onPointerDown={() => {
+                              teleopNudge('left');
+                              teleopKeys.current.left = true;
+                              setActiveKeys((k) => ({ ...k, left: true }));
+                            }}
+                            onPointerUp={() => {
+                              teleopKeys.current.left = false;
+                              setActiveKeys((k) => ({ ...k, left: false }));
+                            }}
+                            onPointerLeave={() => {
+                              teleopKeys.current.left = false;
+                              setActiveKeys((k) => ({ ...k, left: false }));
+                            }}
+                          >
+                            <ArrowLeft size={14} />
+                            <span className="btn-key">A</span>
+                          </button>
+                          <div className="dpad-hub" />
+                          <button
+                            type="button"
+                            className={`teleop-btn dpad-right ${activeKeys.right ? 'is-active' : ''}`}
+                            title="Right (+X) [D / →]"
+                            onPointerDown={() => {
+                              teleopNudge('right');
+                              teleopKeys.current.right = true;
+                              setActiveKeys((k) => ({ ...k, right: true }));
+                            }}
+                            onPointerUp={() => {
+                              teleopKeys.current.right = false;
+                              setActiveKeys((k) => ({ ...k, right: false }));
+                            }}
+                            onPointerLeave={() => {
+                              teleopKeys.current.right = false;
+                              setActiveKeys((k) => ({ ...k, right: false }));
+                            }}
+                          >
+                            <ArrowRight size={14} />
+                            <span className="btn-key">D</span>
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className={`teleop-btn dpad-down ${activeKeys.backward ? 'is-active' : ''}`}
+                          title="Backward (-Z) [S / ↓]"
+                          onPointerDown={() => {
+                            teleopNudge('backward');
+                            teleopKeys.current.backward = true;
+                            setActiveKeys((k) => ({ ...k, backward: true }));
+                          }}
+                          onPointerUp={() => {
+                            teleopKeys.current.backward = false;
+                            setActiveKeys((k) => ({ ...k, backward: false }));
+                          }}
+                          onPointerLeave={() => {
+                            teleopKeys.current.backward = false;
+                            setActiveKeys((k) => ({ ...k, backward: false }));
+                          }}
+                        >
+                          <ArrowDown size={14} />
+                          <span className="btn-key">S</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Vertical Height Controls */}
+                    <div className="teleop-control-block">
+                      <span className="teleop-block-title">HEIGHT (Q/E)</span>
+                      <div className="teleop-col">
+                        <button
+                          type="button"
+                          className={`teleop-btn vert-up ${activeKeys.up ? 'is-active' : ''}`}
+                          title="Lift arm (+Y) [Q]"
+                          onPointerDown={() => {
+                            teleopNudge('up');
+                            teleopKeys.current.up = true;
+                            setActiveKeys((k) => ({ ...k, up: true }));
+                          }}
+                          onPointerUp={() => {
+                            teleopKeys.current.up = false;
+                            setActiveKeys((k) => ({ ...k, up: false }));
+                          }}
+                          onPointerLeave={() => {
+                            teleopKeys.current.up = false;
+                            setActiveKeys((k) => ({ ...k, up: false }));
+                          }}
+                        >
+                          <ArrowUp size={14} />
+                          <span className="btn-key">Q</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`teleop-btn vert-down ${activeKeys.down ? 'is-active' : ''}`}
+                          title="Lower arm (-Y) [E]"
+                          onPointerDown={() => {
+                            teleopNudge('down');
+                            teleopKeys.current.down = true;
+                            setActiveKeys((k) => ({ ...k, down: true }));
+                          }}
+                          onPointerUp={() => {
+                            teleopKeys.current.down = false;
+                            setActiveKeys((k) => ({ ...k, down: false }));
+                          }}
+                          onPointerLeave={() => {
+                            teleopKeys.current.down = false;
+                            setActiveKeys((k) => ({ ...k, down: false }));
+                          }}
+                        >
+                          <ArrowDown size={14} />
+                          <span className="btn-key">E</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Gripper Claw Toggle with Proximity Detection */}
+                    <div className="teleop-control-block">
+                      <span className="teleop-block-title">CLAW (SPACE)</span>
+                      <button
+                        type="button"
+                        className={`teleop-claw-btn ${snapshot.grip ? 'is-clamped' : snapshot.canGrip ? 'is-ready' : ''}`}
+                        title="Toggle Claw [Space]"
+                        onClick={() => {
+                          simulation.current?.teleopToggleGrip();
+                          setSnapshot(simulation.current!.snapshot());
+                        }}
+                      >
+                        <Grip size={20} />
+                        <span className="claw-status-txt">
+                          {snapshot.grip
+                            ? 'RELEASE'
+                            : snapshot.canGrip
+                              ? 'GRASP NOW!'
+                              : 'GRASP'}
+                        </span>
+                        <span className="btn-key claw-key">SPACE</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="teleop-hud-footer">
+                    <span className="mono teleop-coords">
+                      X:{snapshot.position.x.toFixed(2)} Y:{snapshot.position.y.toFixed(2)} Z:{snapshot.position.z.toFixed(2)}
+                      {snapshot.nearbyBlock && !snapshot.grip && (
+                        <span className="nearby-indicator"> • Near {COLORS[snapshot.nearbyBlock].name}</span>
+                      )}
+                    </span>
+                    <span className="teleop-hint">Keys: W/S/A/D • Q/E • Space</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
           {!dismissedOnboarding && !latest && !running && (

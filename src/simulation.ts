@@ -67,6 +67,8 @@ export type Snapshot = {
   phase: string;
   completed: number;
   grip: boolean;
+  canGrip: boolean;
+  nearbyBlock: ObjectId | null;
   position: Point;
   objects: Record<ObjectId, Point>;
   logs: LogEntry[];
@@ -212,9 +214,12 @@ export class Simulation {
 
   teleopMove(dx: number, dy: number, dz: number) {
     if (this.status !== 'teleop') return;
+    // When holding a block, ensure held block stays above tabletop (minY = 0.135)
+    // When empty, keep gripper fingertips above table (minY = 0.08)
+    const minY = this.held !== null ? 0.135 : 0.08;
     const next = {
       x: this.position.x + dx,
-      y: Math.max(0.06, Math.min(1.2, this.position.y + dy)),
+      y: Math.max(minY, Math.min(1.2, this.position.y + dy)),
       z: this.position.z + dz,
     };
     const distance = Math.hypot(
@@ -237,7 +242,7 @@ export class Simulation {
       return false;
     }
     let nearestId: ObjectId | null = null;
-    let minDist = 0.25;
+    let minDist = 0.28;
     for (const id of Object.keys(COLORS) as ObjectId[]) {
       const body = this.bodies[id];
       const d = body.position.distanceTo(this.gripper.position);
@@ -249,7 +254,17 @@ export class Simulation {
     if (nearestId) {
       const body = this.bodies[nearestId];
       body.wakeUp();
-      this.constraint = new CANNON.LockConstraint(this.gripper, body, { maxForce: 150 });
+      // Snap block neatly centered between the gripper fingers to eliminate mesh clipping/overlapping
+      body.position.set(
+        this.gripper.position.x,
+        this.gripper.position.y - 0.035,
+        this.gripper.position.z,
+      );
+      body.quaternion.set(0, 0, 0, 1);
+      body.velocity.setZero();
+      body.angularVelocity.setZero();
+
+      this.constraint = new CANNON.LockConstraint(this.gripper, body, { maxForce: 250 });
       this.constraint.collideConnected = false;
       this.world.addConstraint(this.constraint);
       this.held = nearestId;
@@ -258,6 +273,17 @@ export class Simulation {
     }
     this.log('Gripper closed (no block in reach).');
     return false;
+  }
+
+  canGripBlock(): ObjectId | null {
+    if (this.held !== null) return this.held;
+    for (const id of Object.keys(COLORS) as ObjectId[]) {
+      const body = this.bodies[id];
+      if (body.position.distanceTo(this.gripper.position) < 0.28) {
+        return id;
+      }
+    }
+    return null;
   }
 
   private nextTask() {
@@ -453,6 +479,8 @@ export class Simulation {
                 : (this.phases[this.phaseIndex]?.name ?? 'Validating'),
       completed: this.completed,
       grip: this.held !== null,
+      canGrip: this.canGripBlock() !== null,
+      nearbyBlock: this.canGripBlock(),
       position: { ...this.position },
       objects: Object.fromEntries(
         (Object.keys(COLORS) as ObjectId[]).map((id) => [
