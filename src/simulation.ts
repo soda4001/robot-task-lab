@@ -149,9 +149,22 @@ export class Simulation {
       type: CANNON.Body.KINEMATIC,
       mass: 0,
       collisionFilterMask: 0,
-      shape: new CANNON.Sphere(0.01),
       position: new CANNON.Vec3(HOME.x, HOME.y, HOME.z),
     });
+    // Left and right finger collision boxes
+    this.gripper.addShape(
+      new CANNON.Box(new CANNON.Vec3(0.02, 0.08, 0.06)),
+      new CANNON.Vec3(-0.13, 0.035, 0),
+    );
+    this.gripper.addShape(
+      new CANNON.Box(new CANNON.Vec3(0.02, 0.08, 0.06)),
+      new CANNON.Vec3(0.13, 0.035, 0),
+    );
+    // Palm / motor collision box
+    this.gripper.addShape(
+      new CANNON.Box(new CANNON.Vec3(0.10, 0.06, 0.08)),
+      new CANNON.Vec3(0, 0.175, 0),
+    );
     this.world.addBody(this.gripper);
     for (let i = 0; i < 30; i++) this.world.step(1 / 120);
     this.log('Scene initialized. All systems ready.');
@@ -202,26 +215,129 @@ export class Simulation {
   startTeleop() {
     this.isTeleop = true;
     this.status = 'teleop';
+    this.gripper.collisionFilterMask = -1;
     this.log('Direct Drive mode active. Control arm with keys or HUD.');
   }
 
   stopTeleop() {
     this.isTeleop = false;
     this.status = 'paused';
+    this.gripper.collisionFilterMask = 0;
     this.gripper.velocity.setZero();
     this.log('Direct Drive mode paused.');
   }
 
   teleopMove(dx: number, dy: number, dz: number) {
     if (this.status !== 'teleop') return;
-    // When holding a block, ensure held block stays above tabletop (minY = 0.135)
-    // When empty, keep gripper fingertips above table (minY = 0.08)
-    const minY = this.held !== null ? 0.135 : 0.08;
-    const next = {
-      x: this.position.x + dx,
-      y: Math.max(minY, Math.min(1.2, this.position.y + dy)),
-      z: this.position.z + dz,
-    };
+
+    let targetX = this.position.x + dx;
+    let targetY = this.position.y + dy;
+    let targetZ = this.position.z + dz;
+
+    // Minimum base height from table
+    targetY = Math.max(0.085, Math.min(1.2, targetY));
+
+    if (this.held === null) {
+      for (const id of Object.keys(COLORS) as ObjectId[]) {
+        const body = this.bodies[id];
+        const bx = body.position.x;
+        const by = body.position.y;
+        const bz = body.position.z;
+
+        // Block bounding box
+        const bMinX = bx - 0.09;
+        const bMaxX = bx + 0.09;
+        const bMinY = by - 0.09;
+        const bMaxY = by + 0.09;
+        const bMinZ = bz - 0.09;
+        const bMaxZ = bz + 0.09;
+
+        // Finger bounds:
+        // Left finger X: [targetX - 0.171, targetX - 0.139]
+        // Right finger X: [targetX + 0.139, targetX + 0.171]
+        // Finger Y: [targetY - 0.045, targetY + 0.115]
+        // Finger Z: [targetZ - 0.06, targetZ + 0.06]
+        const fMinY = targetY - 0.045;
+        const fMaxY = targetY + 0.115;
+        const fMinZ = targetZ - 0.06;
+        const fMaxZ = targetZ + 0.06;
+
+        const isZOverlap = fMinZ < bMaxZ && fMaxZ > bMinZ;
+        if (isZOverlap) {
+          const leftOverlapX = targetX - 0.171 < bMaxX && targetX - 0.139 > bMinX;
+          const rightOverlapX = targetX + 0.139 < bMaxX && targetX + 0.171 > bMinX;
+
+          // If either finger horizontally overlaps the block
+          if (leftOverlapX || rightOverlapX) {
+            if (fMinY < bMaxY && fMaxY > bMinY) {
+              if (dy < 0 || this.position.y >= bMaxY + 0.04) {
+                // Stopped on top of block
+                targetY = Math.max(targetY, bMaxY + 0.045);
+              } else {
+                // Pushed sideways away from block
+                if (leftOverlapX) {
+                  targetX = bMaxX + 0.172;
+                } else if (rightOverlapX) {
+                  targetX = bMinX - 0.172;
+                }
+              }
+            }
+          }
+
+          // Palm collision with block top
+          const pMinX = targetX - 0.1;
+          const pMaxX = targetX + 0.1;
+          const pMinY = targetY + 0.1;
+          const pMinZ = targetZ - 0.08;
+          const pMaxZ = targetZ + 0.08;
+          if (pMinX < bMaxX && pMaxX > bMinX && pMinZ < bMaxZ && pMaxZ > bMinZ) {
+            if (pMinY < bMaxY) {
+              targetY = Math.max(targetY, bMaxY - 0.095);
+            }
+          }
+
+          // Front/Back finger penetration prevention
+          const clawMinX = targetX - 0.171;
+          const clawMaxX = targetX + 0.171;
+          if (clawMinX < bMaxX && clawMaxX > bMinX && fMinY < bMaxY && fMaxY > bMinY) {
+            const isBetweenFingers = Math.abs(targetX - bx) <= 0.045;
+            if (!isBetweenFingers) {
+              if (targetZ < bz && targetZ + 0.06 > bMinZ) {
+                targetZ = bMinZ - 0.061;
+              } else if (targetZ > bz && targetZ - 0.06 < bMaxZ) {
+                targetZ = bMaxZ + 0.061;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // While holding a block:
+      targetY = Math.max(0.14, targetY);
+
+      const heldBody = this.bodies[this.held];
+      heldBody.position.set(targetX, targetY - 0.035, targetZ);
+      heldBody.wakeUp();
+
+      for (const id of Object.keys(COLORS) as ObjectId[]) {
+        if (id === this.held) continue;
+        const other = this.bodies[id];
+        const vertDist = Math.abs(targetY - 0.035 - other.position.y);
+        if (vertDist < 0.18) {
+          const hDist = Math.hypot(targetX - other.position.x, targetZ - other.position.z);
+          const minClearance = 0.185;
+          if (hDist < minClearance && hDist > 0.001) {
+            const nx = (targetX - other.position.x) / hDist;
+            const nz = (targetZ - other.position.z) / hDist;
+            targetX = other.position.x + nx * minClearance;
+            targetZ = other.position.z + nz * minClearance;
+            heldBody.position.set(targetX, targetY - 0.035, targetZ);
+          }
+        }
+      }
+    }
+
+    const next = { x: targetX, y: targetY, z: targetZ };
     const distance = Math.hypot(
       next.x - SHOULDER.x,
       next.y + 0.2 - SHOULDER.y,
@@ -229,6 +345,7 @@ export class Simulation {
     );
     if (distance <= 2.12) {
       this.position = next;
+      this.gripper.position.set(next.x, next.y, next.z);
     }
   }
 
@@ -343,6 +460,16 @@ export class Simulation {
         (this.position.z - this.gripper.position.z) / dt,
       );
       this.world.step(dt);
+      if (this.held !== null) {
+        const heldBody = this.bodies[this.held];
+        heldBody.position.set(
+          this.gripper.position.x,
+          this.gripper.position.y - 0.035,
+          this.gripper.position.z,
+        );
+        heldBody.quaternion.set(0, 0, 0, 1);
+        heldBody.velocity.setZero();
+      }
       return;
     }
     if (this.status !== 'running') return;

@@ -89,6 +89,25 @@ describe('physical task validation', () => {
     expect(sim.status).toBe('paused');
     expect(sim.isTeleop).toBe(false);
   });
+
+  it('prevents claw and block mesh penetration via 3D contact constraints', () => {
+    const sim = new Simulation(createProject());
+    sim.startTeleop();
+
+    const coralPos = sim.bodies.coral.position;
+
+    // Test 1: Vertical descent when misaligned horizontally stops above block top
+    sim.position = { x: coralPos.x + 0.15, y: 0.5, z: coralPos.z };
+    sim.teleopMove(0, -0.45, 0); // Attempt to plunge down
+    expect(sim.position.y).toBeCloseTo(coralPos.y + 0.135, 2);
+
+    // Test 2: Horizontal approach cleanly separates claw outside block boundary
+    sim.position = { x: coralPos.x - 0.4, y: coralPos.y, z: coralPos.z };
+    sim.teleopMove(0.3, 0, 0); // Drive towards block
+    // Claw center is separated such that right finger tip remains outside block surface
+    const xDist = Math.abs(sim.position.x - sim.bodies.coral.position.x);
+    expect(xDist).toBeGreaterThanOrEqual(0.26);
+  });
 });
 
 describe('portable project format', () => {
