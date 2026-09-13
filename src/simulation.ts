@@ -88,6 +88,7 @@ export class Simulation {
   completed = 0;
   position: Point = { ...HOME };
   held: ObjectId | null = null;
+  isClawClosed = false;
   logs: LogEntry[] = [];
   result: RunResult | null = null;
   private constraint: CANNON.LockConstraint | null = null;
@@ -387,9 +388,17 @@ export class Simulation {
       this.constraint = null;
       const released = this.held;
       this.held = null;
+      this.isClawClosed = false;
       this.log(`Released ${COLORS[released].name}.`);
       return false;
     }
+
+    if (this.isClawClosed) {
+      this.isClawClosed = false;
+      this.log('Gripper opened.');
+      return false;
+    }
+
     let nearestId: ObjectId | null = null;
     let minDist = 0.32;
     for (const id of Object.keys(COLORS) as ObjectId[]) {
@@ -417,11 +426,14 @@ export class Simulation {
       this.constraint.collideConnected = false;
       this.world.addConstraint(this.constraint);
       this.held = nearestId;
+      this.isClawClosed = true;
       this.log(`Grasped ${COLORS[nearestId].name}!`, 'success');
       return true;
     }
-    this.log('Gripper closed (no block in reach).');
-    return false;
+
+    this.isClawClosed = true;
+    this.log('Gripper closed (empty air).');
+    return true;
   }
 
   canGripBlock(): ObjectId | null {
@@ -553,11 +565,13 @@ export class Simulation {
       this.constraint.collideConnected = false;
       this.world.addConstraint(this.constraint);
       this.held = id;
+      this.isClawClosed = true;
     }
     if (phase.action === 'release') {
       if (this.constraint) this.world.removeConstraint(this.constraint);
       this.constraint = null;
       this.held = null;
+      this.isClawClosed = false;
     }
     this.phaseIndex++;
     this.phaseElapsed = 0;
@@ -637,7 +651,7 @@ export class Simulation {
                 ? 'Run stopped'
                 : (this.phases[this.phaseIndex]?.name ?? 'Validating'),
       completed: this.completed,
-      grip: this.held !== null,
+      grip: this.held !== null || this.isClawClosed,
       canGrip: this.canGripBlock() !== null,
       nearbyBlock: this.canGripBlock(),
       position: { ...this.position },

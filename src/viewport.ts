@@ -397,8 +397,10 @@ export class Viewport {
     this.elbow.rotation.y = -Math.atan2(dz, dx);
     this.wrist.position.copy(end);
     this.claw.position.copy(vec(sim.position));
+    const targetOffset = sim.held ? 0.111 : sim.isClawClosed ? 0.082 : 0.155;
     this.fingers.forEach((finger, i) => {
-      finger.position.x = (i === 0 ? -1 : 1) * (sim.held ? 0.111 : 0.155);
+      const targetX = (i === 0 ? -1 : 1) * targetOffset;
+      finger.position.x += (targetX - finger.position.x) * 0.35;
     });
     for (const id of Object.keys(COLORS) as ObjectId[]) {
       const body = sim.bodies[id];

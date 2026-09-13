@@ -68,6 +68,17 @@ describe('physical task validation', () => {
     expect(sim.position.y).toBeCloseTo(initialPos.y + 0.05, 3);
     expect(sim.position.z).toBeCloseTo(initialPos.z - 0.1, 3);
 
+    // Empty air claw toggle
+    const closedInAir = sim.teleopToggleGrip();
+    expect(closedInAir).toBe(true);
+    expect(sim.isClawClosed).toBe(true);
+    expect(sim.held).toBeNull();
+
+    const openedInAir = sim.teleopToggleGrip();
+    expect(openedInAir).toBe(false);
+    expect(sim.isClawClosed).toBe(false);
+    expect(sim.held).toBeNull();
+
     for (let i = 0; i < 30; i++) sim.tick(1 / 120);
     expect(sim.gripper.position.x).toBeCloseTo(sim.position.x, 2);
 
