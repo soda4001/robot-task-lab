@@ -192,6 +192,14 @@ export default function App() {
   const redoStack = useRef<Project[]>([]);
   const worker = useRef<Worker | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [dismissedOnboarding, setDismissedOnboarding] = useState(() => {
+    try {
+      return localStorage.getItem('rtl_onboarding_dismissed') === '1';
+    } catch {
+      return false;
+    }
+  });
   const mission = MISSIONS[project.mission];
   const task = project.steps.find((s) => s.id === selectedStep);
   const running = snapshot.status === 'running';
@@ -207,6 +215,27 @@ export default function App() {
     placementOffset: project.placementOffset,
   });
   const exportText = exportFormat === 'json' ? JSON.stringify(project, null, 2) : toPython(project);
+
+  const NEXT_MISSION: Record<MissionId, MissionId | null> = {
+    sort: 'precision',
+    precision: 'stack',
+    stack: null,
+  };
+
+  const MISSION_HINTS: Record<MissionId, string> = {
+    sort: 'Hint: Make sure each block matches its matching color tray (Coral → Coral, Mint → Mint, Blue → Blue).',
+    precision: 'Hint: Tight margins! Check the sequence order, or expand Advanced Physics to adjust lift clearance.',
+    stack: 'Hint: The tower requires placing the base block first before stacking higher layers.',
+  };
+
+  function switchMission(targetMission: MissionId) {
+    if (busy || testing) return;
+    const next = createProject(targetMission);
+    update(next);
+    setSelectedStep(next.steps[0].id);
+    setMobileView('scene');
+    reset();
+  }
 
   function notify(message: string) {
     setToast(message);
@@ -267,6 +296,12 @@ export default function App() {
     setResetKey((key) => key + 1);
   }
   function run() {
+    if (!dismissedOnboarding) {
+      setDismissedOnboarding(true);
+      try {
+        localStorage.setItem('rtl_onboarding_dismissed', '1');
+      } catch {}
+    }
     if (snapshot.status === 'complete' || snapshot.status === 'failed') {
       const sim = new Simulation(project);
       simulation.current = sim;
@@ -754,27 +789,55 @@ export default function App() {
           <div className="scene-title">
             <span className="eyebrow">MANIPULATION LAB / {mission.label}</span>
             <h1>{mission.title}</h1>
-            {!latest && <p>{mission.description}</p>}
+            <div className="mission-goal-bar">
+              <span className="goal-tag">GOAL</span>
+              <span className="goal-text">{mission.description}</span>
+            </div>
             {latest && (
               <div className={`result-banner ${latest.passed ? 'passed' : 'failed'}`} role="status">
-                <span>
-                  {latest.passed ? <CircleCheck size={14} /> : <CircleHelp size={14} />}
-                  <strong>
-                    {latest.passed ? 'All objects on target' : 'Placement needs a correction'}
-                  </strong>
-                </span>
-                <span className="mono">
-                  {latest.checks.filter((c) => c.passed).length}/3 passed
-                </span>
-                <button
-                  onClick={() => {
-                    setInspector('runs');
-                    setMobileView('inspector');
-                  }}
-                  aria-label="View run results"
-                >
-                  <ArrowRight size={15} />
-                </button>
+                <div className="result-status-line">
+                  <span className="result-summary">
+                    {latest.passed ? <CircleCheck size={16} /> : <CircleHelp size={16} />}
+                    <strong>
+                      {latest.passed ? 'Mission Complete!' : 'Placement needs correction'}
+                    </strong>
+                  </span>
+                  <span className="mono result-score">
+                    {latest.checks.filter((c) => c.passed).length}/3 passed
+                  </span>
+                  <button
+                    className="result-details-btn"
+                    onClick={() => {
+                      setInspector('runs');
+                      setMobileView('inspector');
+                    }}
+                    aria-label="View run results"
+                    title="View details"
+                  >
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+                {latest.passed ? (
+                  NEXT_MISSION[project.mission] ? (
+                    <div className="celebration-row">
+                      <button
+                        className="next-mission-btn"
+                        onClick={() => switchMission(NEXT_MISSION[project.mission]!)}
+                      >
+                        <span>Next Challenge: {MISSIONS[NEXT_MISSION[project.mission]!].title}</span>
+                        <ArrowRight size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="celebration-row">
+                      <span className="all-mastered-tag">🏆 All 3 Labs Mastered!</span>
+                    </div>
+                  )
+                ) : (
+                  <div className="result-hint-row">
+                    <span>💡 {MISSION_HINTS[project.mission]}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -814,13 +877,35 @@ export default function App() {
             <span className={`status-dot ${running ? 'pulsing' : ''}`} />
             <span>{snapshot.phase}</span>
           </div>
+          {!dismissedOnboarding && !latest && !running && (
+            <div className="onboarding-guide" role="status">
+              <div className="onboarding-guide-text">
+                <span className="onboarding-tag">QUICK START</span>
+                <strong>Start with 1 Click</strong>
+                <p>Click <strong>Run</strong> below to watch the robot sort blocks into trays!</p>
+              </div>
+              <button
+                type="button"
+                className="onboarding-dismiss-btn"
+                onClick={() => {
+                  setDismissedOnboarding(true);
+                  try {
+                    localStorage.setItem('rtl_onboarding_dismissed', '1');
+                  } catch {}
+                }}
+                aria-label="Dismiss hint"
+              >
+                Got it
+              </button>
+            </div>
+          )}
           <div className="transport">
             <IconButton label="Reset simulation" onClick={reset} disabled={testing}>
               <RotateCcw size={17} />
             </IconButton>
             <span className="transport-separator" />
             <button
-              className={`run-button ${running ? 'is-running' : ''}`}
+              className={`run-button ${running ? 'is-running' : ''} ${!dismissedOnboarding && !latest && !running ? 'pulsing-attention' : ''}`}
               aria-label={
                 running
                   ? 'Pause simulation'
@@ -974,91 +1059,107 @@ export default function App() {
                     <strong>No task selected</strong>
                   </div>
                 )}
-                <section className="inspector-section">
-                  <div className="section-caption">
-                    <span>MOTION SETTINGS</span>
-                    <Route size={13} />
+                <div className="advanced-toggle-wrapper">
+                  <button
+                    type="button"
+                    className={`advanced-toggle-btn ${showAdvanced ? 'active' : ''}`}
+                    onClick={() => setShowAdvanced((v) => !v)}
+                    aria-expanded={showAdvanced}
+                  >
+                    <Settings2 size={13} />
+                    <span>Advanced Physics & Parameters</span>
+                    <ChevronDown size={14} className={`chevron-icon ${showAdvanced ? 'open' : ''}`} />
+                  </button>
+                </div>
+                {showAdvanced && (
+                  <div className="advanced-sections">
+                    <section className="inspector-section">
+                      <div className="section-caption">
+                        <span>MOTION SETTINGS</span>
+                        <Route size={13} />
+                      </div>
+                      <label className="range-label">
+                        <span>
+                          Lift clearance
+                          <output>
+                            {project.liftHeight.toFixed(2)} <small>m</small>
+                          </output>
+                        </span>
+                        <input
+                          aria-label="Lift clearance"
+                          type="range"
+                          min="0.42"
+                          max="1.05"
+                          step="0.01"
+                          value={project.liftHeight}
+                          disabled={busy || testing}
+                          onChange={(e) => update({ ...project, liftHeight: Number(e.target.value) })}
+                        />
+                      </label>
+                      <label className="range-label">
+                        <span>
+                          Placement offset
+                          <output>
+                            {Math.round(project.placementOffset * 1000)} <small>mm</small>
+                          </output>
+                        </span>
+                        <input
+                          aria-label="Placement offset"
+                          type="range"
+                          min="-0.12"
+                          max="0.12"
+                          step="0.005"
+                          value={project.placementOffset}
+                          disabled={busy || testing}
+                          onChange={(e) =>
+                            update({ ...project, placementOffset: Number(e.target.value) })
+                          }
+                        />
+                      </label>
+                    </section>
+                    <section className="inspector-section">
+                      <div className="section-caption">
+                        <span>WORKCELL</span>
+                        <Grid2X2 size={13} />
+                      </div>
+                      <div className="data-row">
+                        <span>Gravity</span>
+                        <span className="mono">
+                          9.81 m/s<sup>2</sup>
+                        </span>
+                      </div>
+                      <div className="data-row">
+                        <span>Object mass</span>
+                        <span className="mono">150 g</span>
+                      </div>
+                      <div className="seed-row">
+                        <label htmlFor="scene-seed">Layout seed</label>
+                        <input
+                          id="scene-seed"
+                          type="number"
+                          min={1}
+                          max={999999}
+                          value={project.seed}
+                          disabled={busy || testing}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isInteger(n) && n > 0 && n <= 999999)
+                              update({ ...project, seed: n });
+                          }}
+                        />
+                        <IconButton
+                          label="Randomize object layout"
+                          disabled={busy || testing}
+                          onClick={() =>
+                            update({ ...project, seed: Math.floor(Math.random() * 999999) + 1 })
+                          }
+                        >
+                          <Shuffle size={14} />
+                        </IconButton>
+                      </div>
+                    </section>
                   </div>
-                  <label className="range-label">
-                    <span>
-                      Lift clearance
-                      <output>
-                        {project.liftHeight.toFixed(2)} <small>m</small>
-                      </output>
-                    </span>
-                    <input
-                      aria-label="Lift clearance"
-                      type="range"
-                      min="0.42"
-                      max="1.05"
-                      step="0.01"
-                      value={project.liftHeight}
-                      disabled={busy || testing}
-                      onChange={(e) => update({ ...project, liftHeight: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label className="range-label">
-                    <span>
-                      Placement offset
-                      <output>
-                        {Math.round(project.placementOffset * 1000)} <small>mm</small>
-                      </output>
-                    </span>
-                    <input
-                      aria-label="Placement offset"
-                      type="range"
-                      min="-0.12"
-                      max="0.12"
-                      step="0.005"
-                      value={project.placementOffset}
-                      disabled={busy || testing}
-                      onChange={(e) =>
-                        update({ ...project, placementOffset: Number(e.target.value) })
-                      }
-                    />
-                  </label>
-                </section>
-                <section className="inspector-section">
-                  <div className="section-caption">
-                    <span>WORKCELL</span>
-                    <Grid2X2 size={13} />
-                  </div>
-                  <div className="data-row">
-                    <span>Gravity</span>
-                    <span className="mono">
-                      9.81 m/s<sup>2</sup>
-                    </span>
-                  </div>
-                  <div className="data-row">
-                    <span>Object mass</span>
-                    <span className="mono">150 g</span>
-                  </div>
-                  <div className="seed-row">
-                    <label htmlFor="scene-seed">Layout seed</label>
-                    <input
-                      id="scene-seed"
-                      type="number"
-                      min={1}
-                      max={999999}
-                      value={project.seed}
-                      disabled={busy || testing}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        if (Number.isInteger(n) && n > 0 && n <= 999999)
-                          update({ ...project, seed: n });
-                      }}
-                    />
-                    <IconButton
-                      label="Randomize object layout"
-                      disabled={busy || testing}
-                      onClick={() =>
-                        update({ ...project, seed: Math.floor(Math.random() * 999999) + 1 })
-                      }
-                    >
-                      <Shuffle size={14} />
-                    </IconButton>
-                  </div>
-                </section>
+                )}
               </>
             )}
             {inspector === 'objects' && (
@@ -1562,6 +1663,24 @@ export default function App() {
                 Three.js
                 <ArrowRight size={13} />
               </a>
+            </div>
+            <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}>
+              <button
+                type="button"
+                className="button"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => {
+                  setDismissedOnboarding(false);
+                  try {
+                    localStorage.removeItem('rtl_onboarding_dismissed');
+                  } catch {}
+                  setModal(null);
+                  notify('Quick start guide hint enabled.');
+                }}
+              >
+                <RotateCcw size={14} />
+                Reopen Quick Start Guide
+              </button>
             </div>
           </div>
         </Modal>

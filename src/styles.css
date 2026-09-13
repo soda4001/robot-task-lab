@@ -777,39 +777,243 @@ small {
   width: 48px;
   padding: 3px 0;
 }
-.result-banner {
-  position: static;
-  margin-top: 9px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  background: transparent;
-  color: #347248;
-  font-size: 11px;
-  pointer-events: auto;
-}
-.result-banner > span:first-child {
+.mission-goal-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
+  margin-top: 8px;
 }
-.result-banner strong {
-  font-weight: 500;
+.goal-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: #4a7559;
+  background: #d8e5db;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
 }
-.result-banner button {
-  display: grid;
-  place-items: center;
-  color: inherit;
-  padding: 0;
+.goal-text {
+  font-size: 11px;
+  color: #657b6c;
+}
+.result-banner {
+  position: static;
+  margin-top: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 6px;
+  background: #edf6f0;
+  border: 1px solid #cce5d4;
+  color: #276c42;
+  font-size: 11px;
+  pointer-events: auto;
+  animation: popIn 0.25s ease-out;
+  max-width: 440px;
 }
 .result-banner.failed {
-  color: #aa543c;
+  background: #fbf0ee;
+  border-color: #f1cfc8;
+  color: #a34832;
 }
-.result-banner .mono {
+.result-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.result-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+}
+.result-summary strong {
+  font-weight: 600;
+}
+.result-score {
   font-size: 10px;
+}
+.result-details-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.75;
+  transition: opacity 0.15s;
+}
+.result-details-btn:hover {
+  opacity: 1;
+}
+.celebration-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #c2e2cc;
+}
+.result-banner.failed .celebration-row {
+  border-color: #f0cac3;
+}
+.next-mission-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--green);
+  color: #ffffff !important;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.next-mission-btn:hover {
+  background: var(--green-dark);
+}
+.all-mastered-tag {
+  font-weight: 600;
+  color: #1f683e;
+}
+.result-hint-row {
+  padding-top: 6px;
+  border-top: 1px solid #f0cac3;
+  font-size: 11px;
+  color: #8c3f2b;
+}
+
+.onboarding-guide {
+  position: absolute;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #203629;
+  color: #f3f7f4;
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(28, 48, 36, 0.28);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 10;
+  max-width: 90vw;
+  width: max-content;
+  pointer-events: auto;
+  animation: floatUp 0.3s ease-out;
+}
+.onboarding-guide-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.onboarding-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  color: #72d69e;
+  font-weight: 600;
+}
+.onboarding-guide-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.onboarding-guide-text p {
+  font-size: 11px;
+  color: #cbd8cf;
+  margin: 0;
+}
+.onboarding-dismiss-btn {
+  background: #34523f;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 4px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.onboarding-dismiss-btn:hover {
+  background: #466e55;
+}
+
+@keyframes pulseAttention {
+  0% {
+    box-shadow: 0 0 0 0 rgba(39, 120, 87, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(39, 120, 87, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(39, 120, 87, 0);
+  }
+}
+.run-button.pulsing-attention {
+  animation: pulseAttention 1.8s infinite;
+}
+
+.advanced-toggle-wrapper {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.advanced-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-size: 11px;
+  color: #5b7363;
+  font-weight: 500;
+  padding: 6px 0;
+  transition: color 0.15s;
+}
+.advanced-toggle-btn:hover {
+  color: var(--green);
+}
+.advanced-toggle-btn.active {
+  color: var(--green-dark);
+}
+.advanced-toggle-btn .chevron-icon {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+}
+.advanced-toggle-btn .chevron-icon.open {
+  transform: rotate(180deg);
+}
+.advanced-sections {
+  animation: slideDown 0.2s ease-out;
+}
+@keyframes floatUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .webgl-error {
   position: absolute;
