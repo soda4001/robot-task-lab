@@ -267,18 +267,19 @@ export class Simulation {
           const leftOverlapX = targetX - 0.171 < bMaxX && targetX - 0.139 > bMinX;
           const rightOverlapX = targetX + 0.139 < bMaxX && targetX + 0.171 > bMinX;
 
-          // If either finger horizontally contacts/overlaps the block
-          if (leftOverlapX || rightOverlapX) {
+          // 1. If centered over block: allow descending until palm meets block top (for grasping!)
+          const isGraspAligned = Math.abs(targetX - bx) < 0.055 && Math.abs(targetZ - bz) < 0.065;
+
+          if (isGraspAligned) {
+            // Lower cleanly down to block center to grasp
+            targetY = Math.max(targetY, bMaxY - 0.09);
+          } else if (leftOverlapX || rightOverlapX) {
             if (fMinY < bMaxY && fMaxY > bMinY) {
               if (dy < 0 || this.position.y >= bMaxY + 0.04) {
-                // Stopped on top of block, wedge block slightly outwards
+                // Stopped on top of block
                 targetY = Math.max(targetY, bMaxY + 0.045);
-                const pushOutX = bx >= targetX ? 0.015 : -0.015;
-                body.position.x += pushOutX;
-                body.velocity.x = pushOutX * 10;
-                body.wakeUp();
               } else {
-                // Moving horizontally into block: physically push the block!
+                // Moving horizontally into side of block: physically push the block!
                 const pushX = dx !== 0 ? dx : (rightOverlapX ? 0.02 : -0.02);
                 const pushZ = dz !== 0 ? dz : 0;
                 body.position.x += pushX;
@@ -299,7 +300,7 @@ export class Simulation {
             }
           }
 
-          // Palm collision with block top
+          // Palm collision with block top (stops motor base plunging into block)
           const pMinX = targetX - 0.1;
           const pMaxX = targetX + 0.1;
           const pMinY = targetY + 0.1;
@@ -390,7 +391,7 @@ export class Simulation {
       return false;
     }
     let nearestId: ObjectId | null = null;
-    let minDist = 0.28;
+    let minDist = 0.32;
     for (const id of Object.keys(COLORS) as ObjectId[]) {
       const body = this.bodies[id];
       const d = body.position.distanceTo(this.gripper.position);
@@ -427,7 +428,7 @@ export class Simulation {
     if (this.held !== null) return this.held;
     for (const id of Object.keys(COLORS) as ObjectId[]) {
       const body = this.bodies[id];
-      if (body.position.distanceTo(this.gripper.position) < 0.28) {
+      if (body.position.distanceTo(this.gripper.position) < 0.32) {
         return id;
       }
     }
