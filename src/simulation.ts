@@ -47,7 +47,7 @@ export function computeServoAngles(position: Point, grip: boolean): ServoAngles 
   };
 }
 
-export type RunStatus = 'ready' | 'running' | 'paused' | 'complete' | 'failed';
+export type RunStatus = 'ready' | 'running' | 'paused' | 'complete' | 'failed' | 'teleop';
 export type LogEntry = { time: number; message: string; kind: 'info' | 'success' | 'error' };
 export type Check = { objectId: ObjectId; passed: boolean; errorMm: number; target: string };
 export type RunResult = {
@@ -80,6 +80,7 @@ export class Simulation {
   gripper: CANNON.Body;
   project: Project;
   status: RunStatus = 'ready';
+  isTeleop = false;
   elapsed = 0;
   activeIndex = -1;
   completed = 0;
@@ -196,6 +197,69 @@ export class Simulation {
     }
   }
 
+  startTeleop() {
+    this.isTeleop = true;
+    this.status = 'teleop';
+    this.log('Direct Drive mode active. Control arm with keys or HUD.');
+  }
+
+  stopTeleop() {
+    this.isTeleop = false;
+    this.status = 'paused';
+    this.gripper.velocity.setZero();
+    this.log('Direct Drive mode paused.');
+  }
+
+  teleopMove(dx: number, dy: number, dz: number) {
+    if (this.status !== 'teleop') return;
+    const next = {
+      x: this.position.x + dx,
+      y: Math.max(0.06, Math.min(1.2, this.position.y + dy)),
+      z: this.position.z + dz,
+    };
+    const distance = Math.hypot(
+      next.x - SHOULDER.x,
+      next.y + 0.2 - SHOULDER.y,
+      next.z - SHOULDER.z,
+    );
+    if (distance <= 2.12) {
+      this.position = next;
+    }
+  }
+
+  teleopToggleGrip(): boolean {
+    if (this.held !== null) {
+      if (this.constraint) this.world.removeConstraint(this.constraint);
+      this.constraint = null;
+      const released = this.held;
+      this.held = null;
+      this.log(`Released ${COLORS[released].name}.`);
+      return false;
+    }
+    let nearestId: ObjectId | null = null;
+    let minDist = 0.25;
+    for (const id of Object.keys(COLORS) as ObjectId[]) {
+      const body = this.bodies[id];
+      const d = body.position.distanceTo(this.gripper.position);
+      if (d < minDist) {
+        minDist = d;
+        nearestId = id;
+      }
+    }
+    if (nearestId) {
+      const body = this.bodies[nearestId];
+      body.wakeUp();
+      this.constraint = new CANNON.LockConstraint(this.gripper, body, { maxForce: 150 });
+      this.constraint.collideConnected = false;
+      this.world.addConstraint(this.constraint);
+      this.held = nearestId;
+      this.log(`Grasped ${COLORS[nearestId].name}!`, 'success');
+      return true;
+    }
+    this.log('Gripper closed (no block in reach).');
+    return false;
+  }
+
   private nextTask() {
     this.activeIndex++;
     if (this.activeIndex >= this.steps.length) {
@@ -245,6 +309,16 @@ export class Simulation {
   }
 
   tick(dt: number) {
+    if (this.status === 'teleop') {
+      this.elapsed += dt;
+      this.gripper.velocity.set(
+        (this.position.x - this.gripper.position.x) / dt,
+        (this.position.y - this.gripper.position.y) / dt,
+        (this.position.z - this.gripper.position.z) / dt,
+      );
+      this.world.step(dt);
+      return;
+    }
     if (this.status !== 'running') return;
     this.elapsed += dt;
     const phase = this.phases[this.phaseIndex];
@@ -370,11 +444,13 @@ export class Simulation {
       phase:
         this.status === 'ready'
           ? 'Ready to run'
-          : this.status === 'complete'
-            ? 'Run complete'
-            : this.status === 'failed'
-              ? 'Run stopped'
-              : (this.phases[this.phaseIndex]?.name ?? 'Validating'),
+          : this.status === 'teleop'
+            ? (this.held ? `Direct Drive: Holding ${COLORS[this.held].name}` : 'Direct Drive: Manual Control')
+            : this.status === 'complete'
+              ? 'Run complete'
+              : this.status === 'failed'
+                ? 'Run stopped'
+                : (this.phases[this.phaseIndex]?.name ?? 'Validating'),
       completed: this.completed,
       grip: this.held !== null,
       position: { ...this.position },

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Gamepad2,
   Box,
   Boxes,
   Check,
@@ -207,10 +209,30 @@ export default function App() {
   });
   const mission = MISSIONS[project.mission];
   const task = project.steps.find((s) => s.id === selectedStep);
+  const isTeleop = snapshot.status === 'teleop';
   const running = snapshot.status === 'running';
-  const busy = running || snapshot.status === 'paused';
+  const busy = running || snapshot.status === 'paused' || isTeleop;
   const enabled = project.steps.filter((s) => s.enabled);
   const missionHistory = history.filter((r) => r.mission === project.mission);
+  const teleopKeys = useRef({
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+  });
+  const [activeKeys, setActiveKeys] = useState({
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+  });
+  const matchedCount = isTeleop && simulation.current
+    ? simulation.current.evaluate().filter((c) => c.passed).length
+    : 0;
   const latest = snapshot.result ?? null;
   const worldKey = JSON.stringify({
     mission: project.mission,
@@ -304,7 +326,25 @@ export default function App() {
     setInspector('task');
   }
   function reset() {
+    teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
+    setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
     setResetKey((key) => key + 1);
+  }
+  function toggleTeleop() {
+    if (!simulation.current) return;
+    if (snapshot.status === 'teleop') {
+      simulation.current.stopTeleop();
+      teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
+      setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
+      setSnapshot(simulation.current.snapshot());
+    } else {
+      if (snapshot.status === 'complete' || snapshot.status === 'failed') {
+        const sim = new Simulation(project);
+        simulation.current = sim;
+      }
+      simulation.current.startTeleop();
+      setSnapshot(simulation.current.snapshot());
+    }
   }
   function run() {
     if (!dismissedOnboarding) {
@@ -312,6 +352,11 @@ export default function App() {
       try {
         localStorage.setItem('rtl_onboarding_dismissed', '1');
       } catch {}
+    }
+    if (snapshot.status === 'teleop') {
+      simulation.current?.stopTeleop();
+      teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
+      setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
     }
     if (snapshot.status === 'complete' || snapshot.status === 'failed') {
       const sim = new Simulation(project);
@@ -436,6 +481,110 @@ export default function App() {
       setSelectedStep(project.steps[0]?.id ?? '');
   }, [project.steps, selectedStep]);
 
+  const teleopNudge = (dir: 'forward' | 'backward' | 'left' | 'right' | 'up' | 'down') => {
+    if (!simulation.current || simulation.current.status !== 'teleop') return;
+    const step = 0.035;
+    let dx = 0, dy = 0, dz = 0;
+    if (dir === 'left') dx = -step;
+    if (dir === 'right') dx = step;
+    if (dir === 'forward') dz = step;
+    if (dir === 'backward') dz = -step;
+    if (dir === 'up') dy = step;
+    if (dir === 'down') dy = -step;
+    simulation.current.teleopMove(dx, dy, dz);
+    setSnapshot(simulation.current.snapshot());
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!simulation.current?.isTeleop) return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      )
+        return;
+
+      const code = e.code;
+      if (code === 'KeyW' || code === 'ArrowUp') {
+        e.preventDefault();
+        if (!e.repeat) teleopNudge('forward');
+        teleopKeys.current.forward = true;
+        setActiveKeys((k) => ({ ...k, forward: true }));
+      } else if (code === 'KeyS' || code === 'ArrowDown') {
+        e.preventDefault();
+        if (!e.repeat) teleopNudge('backward');
+        teleopKeys.current.backward = true;
+        setActiveKeys((k) => ({ ...k, backward: true }));
+      } else if (code === 'KeyA' || code === 'ArrowLeft') {
+        e.preventDefault();
+        if (!e.repeat) teleopNudge('left');
+        teleopKeys.current.left = true;
+        setActiveKeys((k) => ({ ...k, left: true }));
+      } else if (code === 'KeyD' || code === 'ArrowRight') {
+        e.preventDefault();
+        if (!e.repeat) teleopNudge('right');
+        teleopKeys.current.right = true;
+        setActiveKeys((k) => ({ ...k, right: true }));
+      } else if (code === 'KeyQ' || code === 'PageUp') {
+        e.preventDefault();
+        if (!e.repeat) teleopNudge('up');
+        teleopKeys.current.up = true;
+        setActiveKeys((k) => ({ ...k, up: true }));
+      } else if (code === 'KeyE' || code === 'PageDown') {
+        e.preventDefault();
+        if (!e.repeat) teleopNudge('down');
+        teleopKeys.current.down = true;
+        setActiveKeys((k) => ({ ...k, down: true }));
+      } else if (code === 'Space') {
+        e.preventDefault();
+        if (!e.repeat) {
+          simulation.current.teleopToggleGrip();
+          setSnapshot(simulation.current.snapshot());
+        }
+      } else if (code === 'Escape') {
+        toggleTeleop();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const code = e.code;
+      if (code === 'KeyW' || code === 'ArrowUp') {
+        teleopKeys.current.forward = false;
+        setActiveKeys((k) => ({ ...k, forward: false }));
+      } else if (code === 'KeyS' || code === 'ArrowDown') {
+        teleopKeys.current.backward = false;
+        setActiveKeys((k) => ({ ...k, backward: false }));
+      } else if (code === 'KeyA' || code === 'ArrowLeft') {
+        teleopKeys.current.left = false;
+        setActiveKeys((k) => ({ ...k, left: false }));
+      } else if (code === 'KeyD' || code === 'ArrowRight') {
+        teleopKeys.current.right = false;
+        setActiveKeys((k) => ({ ...k, right: false }));
+      } else if (code === 'KeyQ' || code === 'PageUp') {
+        teleopKeys.current.up = false;
+        setActiveKeys((k) => ({ ...k, up: false }));
+      } else if (code === 'KeyE' || code === 'PageDown') {
+        teleopKeys.current.down = false;
+        setActiveKeys((k) => ({ ...k, down: false }));
+      }
+    };
+
+    const handleBlur = () => {
+      teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
+      setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
   useEffect(() => {
     const sim = new Simulation(project);
     simulation.current = sim;
@@ -465,9 +614,23 @@ export default function App() {
       const current = simulation.current!;
       const delta = Math.min((now - last) / 1000, 0.06);
       last = now;
-      if (current.status === 'running') {
-        accumulated += delta * speedRef.current;
+      if (current.status === 'running' || current.status === 'teleop') {
+        accumulated += delta * (current.status === 'teleop' ? 1 : speedRef.current);
         while (accumulated >= 1 / 120) {
+          if (current.status === 'teleop') {
+            const dt = 1 / 120;
+            const spd = 0.85;
+            let dx = 0, dy = 0, dz = 0;
+            if (teleopKeys.current.left) dx -= spd * dt;
+            if (teleopKeys.current.right) dx += spd * dt;
+            if (teleopKeys.current.forward) dz += spd * dt;
+            if (teleopKeys.current.backward) dz -= spd * dt;
+            if (teleopKeys.current.up) dy += spd * dt;
+            if (teleopKeys.current.down) dy -= spd * dt;
+            if (dx !== 0 || dy !== 0 || dz !== 0) {
+              current.teleopMove(dx, dy, dz);
+            }
+          }
           current.tick(1 / 120);
           accumulated -= 1 / 120;
         }
@@ -894,9 +1057,193 @@ export default function App() {
             </span>
           </div>
           <div className="scene-status">
-            <span className={`status-dot ${running ? 'pulsing' : ''}`} />
+            <span className={`status-dot ${running || isTeleop ? 'pulsing' : ''}`} />
             <span>{snapshot.phase}</span>
           </div>
+          {isTeleop && (
+            <div className="teleop-hud" role="region" aria-label="Direct drive controls">
+              <div className="teleop-hud-header">
+                <div className="teleop-hud-title">
+                  <Gamepad2 size={15} />
+                  <span>DIRECT DRIVE</span>
+                  <span className="teleop-live-badge">MANUAL</span>
+                </div>
+                <div className="teleop-hud-match">
+                  <span className="mono">Goal: {matchedCount}/3 placed</span>
+                </div>
+              </div>
+
+              <div className="teleop-hud-controls">
+                {/* Horizontal / Planar D-Pad */}
+                <div className="teleop-control-block">
+                  <span className="teleop-block-title">PLANAR (W/A/S/D)</span>
+                  <div className="teleop-dpad">
+                    <button
+                      type="button"
+                      className={`teleop-btn dpad-up ${activeKeys.forward ? 'is-active' : ''}`}
+                      title="Forward (+Z) [W / ↑]"
+                      onPointerDown={() => {
+                        teleopNudge('forward');
+                        teleopKeys.current.forward = true;
+                        setActiveKeys((k) => ({ ...k, forward: true }));
+                      }}
+                      onPointerUp={() => {
+                        teleopKeys.current.forward = false;
+                        setActiveKeys((k) => ({ ...k, forward: false }));
+                      }}
+                      onPointerLeave={() => {
+                        teleopKeys.current.forward = false;
+                        setActiveKeys((k) => ({ ...k, forward: false }));
+                      }}
+                    >
+                      <ArrowUp size={14} />
+                      <span className="btn-key">W</span>
+                    </button>
+                    <div className="dpad-mid-row">
+                      <button
+                        type="button"
+                        className={`teleop-btn dpad-left ${activeKeys.left ? 'is-active' : ''}`}
+                        title="Left (-X) [A / ←]"
+                        onPointerDown={() => {
+                          teleopNudge('left');
+                          teleopKeys.current.left = true;
+                          setActiveKeys((k) => ({ ...k, left: true }));
+                        }}
+                        onPointerUp={() => {
+                          teleopKeys.current.left = false;
+                          setActiveKeys((k) => ({ ...k, left: false }));
+                        }}
+                        onPointerLeave={() => {
+                          teleopKeys.current.left = false;
+                          setActiveKeys((k) => ({ ...k, left: false }));
+                        }}
+                      >
+                        <ArrowLeft size={14} />
+                        <span className="btn-key">A</span>
+                      </button>
+                      <div className="dpad-hub" />
+                      <button
+                        type="button"
+                        className={`teleop-btn dpad-right ${activeKeys.right ? 'is-active' : ''}`}
+                        title="Right (+X) [D / →]"
+                        onPointerDown={() => {
+                          teleopNudge('right');
+                          teleopKeys.current.right = true;
+                          setActiveKeys((k) => ({ ...k, right: true }));
+                        }}
+                        onPointerUp={() => {
+                          teleopKeys.current.right = false;
+                          setActiveKeys((k) => ({ ...k, right: false }));
+                        }}
+                        onPointerLeave={() => {
+                          teleopKeys.current.right = false;
+                          setActiveKeys((k) => ({ ...k, right: false }));
+                        }}
+                      >
+                        <ArrowRight size={14} />
+                        <span className="btn-key">D</span>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className={`teleop-btn dpad-down ${activeKeys.backward ? 'is-active' : ''}`}
+                      title="Backward (-Z) [S / ↓]"
+                      onPointerDown={() => {
+                        teleopNudge('backward');
+                        teleopKeys.current.backward = true;
+                        setActiveKeys((k) => ({ ...k, backward: true }));
+                      }}
+                      onPointerUp={() => {
+                        teleopKeys.current.backward = false;
+                        setActiveKeys((k) => ({ ...k, backward: false }));
+                      }}
+                      onPointerLeave={() => {
+                        teleopKeys.current.backward = false;
+                        setActiveKeys((k) => ({ ...k, backward: false }));
+                      }}
+                    >
+                      <ArrowDown size={14} />
+                      <span className="btn-key">S</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Vertical Height Controls */}
+                <div className="teleop-control-block">
+                  <span className="teleop-block-title">HEIGHT (Q/E)</span>
+                  <div className="teleop-col">
+                    <button
+                      type="button"
+                      className={`teleop-btn vert-up ${activeKeys.up ? 'is-active' : ''}`}
+                      title="Lift arm (+Y) [Q]"
+                      onPointerDown={() => {
+                        teleopNudge('up');
+                        teleopKeys.current.up = true;
+                        setActiveKeys((k) => ({ ...k, up: true }));
+                      }}
+                      onPointerUp={() => {
+                        teleopKeys.current.up = false;
+                        setActiveKeys((k) => ({ ...k, up: false }));
+                      }}
+                      onPointerLeave={() => {
+                        teleopKeys.current.up = false;
+                        setActiveKeys((k) => ({ ...k, up: false }));
+                      }}
+                    >
+                      <ArrowUp size={14} />
+                      <span className="btn-key">Q</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`teleop-btn vert-down ${activeKeys.down ? 'is-active' : ''}`}
+                      title="Lower arm (-Y) [E]"
+                      onPointerDown={() => {
+                        teleopNudge('down');
+                        teleopKeys.current.down = true;
+                        setActiveKeys((k) => ({ ...k, down: true }));
+                      }}
+                      onPointerUp={() => {
+                        teleopKeys.current.down = false;
+                        setActiveKeys((k) => ({ ...k, down: false }));
+                      }}
+                      onPointerLeave={() => {
+                        teleopKeys.current.down = false;
+                        setActiveKeys((k) => ({ ...k, down: false }));
+                      }}
+                    >
+                      <ArrowDown size={14} />
+                      <span className="btn-key">E</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Gripper Claw Toggle */}
+                <div className="teleop-control-block">
+                  <span className="teleop-block-title">CLAW (SPACE)</span>
+                  <button
+                    type="button"
+                    className={`teleop-claw-btn ${snapshot.grip ? 'is-clamped' : ''}`}
+                    title="Toggle Claw [Space]"
+                    onClick={() => {
+                      simulation.current?.teleopToggleGrip();
+                      setSnapshot(simulation.current!.snapshot());
+                    }}
+                  >
+                    <Grip size={20} />
+                    <span className="claw-status-txt">{snapshot.grip ? 'RELEASE' : 'GRASP'}</span>
+                    <span className="btn-key claw-key">SPACE</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="teleop-hud-footer">
+                <span className="mono teleop-coords">
+                  X:{snapshot.position.x.toFixed(2)} Y:{snapshot.position.y.toFixed(2)} Z:{snapshot.position.z.toFixed(2)}
+                </span>
+                <span className="teleop-hint">Keys: W/S/A/D • Q/E • Space</span>
+              </div>
+            </div>
+          )}
           {!dismissedOnboarding && !latest && !running && (
             <div className="onboarding-guide" role="status">
               <div className="onboarding-guide-text">
@@ -983,6 +1330,18 @@ export default function App() {
               <option value={2}>2x</option>
               <option value={4}>4x</option>
             </select>
+            <span className="transport-separator" />
+            <button
+              type="button"
+              className={`teleop-toggle-btn ${isTeleop ? 'active' : ''}`}
+              title={isTeleop ? 'Exit manual drive mode' : 'Direct Drive: manually control arm with keyboard or on-screen HUD'}
+              aria-label="Direct drive teleoperation mode"
+              disabled={testing}
+              onClick={toggleTeleop}
+            >
+              <Gamepad2 size={15} />
+              <span>{isTeleop ? 'Exit Drive' : 'Manual Drive'}</span>
+            </button>
           </div>
         </section>
 

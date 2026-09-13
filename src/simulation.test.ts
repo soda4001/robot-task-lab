@@ -56,6 +56,39 @@ describe('physical task validation', () => {
     expect(sim.status).toBe('paused');
     expect(sim.bodies.coral.position.z).toBeCloseTo(-0.57, 1);
   });
+  it('supports direct drive teleoperation mode with kinematic control and grasping', () => {
+    const sim = new Simulation(createProject());
+    sim.startTeleop();
+    expect(sim.status).toBe('teleop');
+    expect(sim.isTeleop).toBe(true);
+
+    const initialPos = { ...sim.position };
+    sim.teleopMove(0.1, 0.05, -0.1);
+    expect(sim.position.x).toBeCloseTo(initialPos.x + 0.1, 3);
+    expect(sim.position.y).toBeCloseTo(initialPos.y + 0.05, 3);
+    expect(sim.position.z).toBeCloseTo(initialPos.z - 0.1, 3);
+
+    for (let i = 0; i < 30; i++) sim.tick(1 / 120);
+    expect(sim.gripper.position.x).toBeCloseTo(sim.position.x, 2);
+
+    // Move directly above coral block and test grasp
+    const coralPos = sim.bodies.coral.position;
+    sim.position = { x: coralPos.x, y: coralPos.y + 0.05, z: coralPos.z };
+    for (let i = 0; i < 30; i++) sim.tick(1 / 120);
+
+    const grasped = sim.teleopToggleGrip();
+    expect(grasped).toBe(true);
+    expect(sim.held).toBe('coral');
+
+    // Releasing grip
+    const released = sim.teleopToggleGrip();
+    expect(released).toBe(false);
+    expect(sim.held).toBeNull();
+
+    sim.stopTeleop();
+    expect(sim.status).toBe('paused');
+    expect(sim.isTeleop).toBe(false);
+  });
 });
 
 describe('portable project format', () => {
