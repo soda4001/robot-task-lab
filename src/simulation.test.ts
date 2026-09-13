@@ -119,6 +119,19 @@ describe('physical task validation', () => {
     const xDist = Math.abs(sim.position.x - sim.bodies.coral.position.x);
     expect(xDist).toBeGreaterThanOrEqual(0.26);
   });
+
+  it('automatically respawns blocks that fall off the table', () => {
+    const sim = new Simulation(createProject());
+    sim.startTeleop();
+
+    // Throw blue block off the table
+    sim.bodies.blue.position.set(0, -1.0, 0);
+    sim.tick(1 / 120);
+
+    // Blue block must be respawned onto the table surface (y >= 0.08)
+    expect(sim.bodies.blue.position.y).toBeGreaterThanOrEqual(0.08);
+    expect(sim.bodies.blue.position.x).toBeCloseTo(sim['initialPositions'].blue.x, 2);
+  });
 });
 
 describe('portable project format', () => {

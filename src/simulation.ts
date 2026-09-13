@@ -99,6 +99,7 @@ export class Simulation {
   private steps: Step[] = [];
   private layers: Record<string, number> = {};
   private finalSettle = 0;
+  private initialPositions: Record<ObjectId, Point>;
 
   constructor(project: Project) {
     this.project = structuredClone(project);
@@ -114,6 +115,7 @@ export class Simulation {
       }),
     );
     const positions = seededPositions(project.seed);
+    this.initialPositions = structuredClone(positions);
     for (const id of Object.keys(COLORS) as ObjectId[]) {
       const p = positions[id];
       const body = new CANNON.Body({
@@ -494,6 +496,27 @@ export class Simulation {
     this.log(message, 'error');
   }
 
+  private checkAndRespawnFallenBlocks() {
+    for (const id of Object.keys(COLORS) as ObjectId[]) {
+      const body = this.bodies[id];
+      if (body.position.y < -0.25 || Math.abs(body.position.x) > 1.95 || Math.abs(body.position.z) > 1.35) {
+        if (this.held === id) {
+          if (this.constraint) this.world.removeConstraint(this.constraint);
+          this.constraint = null;
+          this.held = null;
+          this.isClawClosed = false;
+        }
+        const spawn = this.initialPositions[id];
+        body.position.set(spawn.x, 0.12, spawn.z);
+        body.quaternion.set(0, 0, 0, 1);
+        body.velocity.setZero();
+        body.angularVelocity.setZero();
+        body.wakeUp();
+        this.log(`${COLORS[id].name} fell off table and was respawned!`, 'info');
+      }
+    }
+  }
+
   tick(dt: number) {
     if (this.status === 'teleop') {
       this.elapsed += dt;
@@ -513,10 +536,12 @@ export class Simulation {
         heldBody.quaternion.set(0, 0, 0, 1);
         heldBody.velocity.setZero();
       }
+      this.checkAndRespawnFallenBlocks();
       return;
     }
     if (this.status !== 'running') return;
     this.elapsed += dt;
+    this.checkAndRespawnFallenBlocks();
     const phase = this.phases[this.phaseIndex];
     if (!phase) {
       this.gripper.velocity.setZero();
