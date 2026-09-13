@@ -396,7 +396,13 @@ export default function App() {
       teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
       setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
     }
-    if (snapshot.status === 'complete' || snapshot.status === 'failed') {
+    if (
+      snapshot.status === 'teleop' ||
+      snapshot.status === 'complete' ||
+      snapshot.status === 'failed' ||
+      !simulation.current ||
+      simulation.current.activeIndex === -1
+    ) {
       const sim = new Simulation(project);
       simulation.current = sim;
       sim.start();

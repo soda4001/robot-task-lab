@@ -176,12 +176,11 @@ export class Simulation {
   }
 
   start() {
-    if (this.status === 'paused') {
+    if (this.status === 'paused' && this.steps.length > 0 && this.activeIndex >= 0) {
       this.status = 'running';
       this.log('Run resumed.');
       return;
     }
-    if (this.status !== 'ready') return;
     this.steps = this.project.steps.filter((s) => s.enabled);
     if (this.steps.length === 0) {
       this.log('Add or enable a task before running.', 'error');
