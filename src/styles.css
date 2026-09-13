@@ -2843,6 +2843,280 @@ small {
     font-size: 9px;
   }
 }
+
+/* --- 3D Print & Maker DIY Features --- */
+.diy-nav-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #3b5f49;
+}
+.diy-badge {
+  background: #d3ecd9 !important;
+  color: #1b6338 !important;
+  font-weight: 700;
+  font-size: 8px !important;
+  letter-spacing: 0.5px;
+}
+
+/* Servo Meters Grid */
+.servo-meters-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.servo-meter-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.servo-meter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+}
+.servo-pin {
+  font-size: 8px;
+  background: #edf2ee;
+  color: #43634e;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.servo-meter-val {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.servo-meter-val strong {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: #277857;
+  font-weight: 600;
+}
+.servo-meter-val small {
+  font-size: 9px;
+  color: var(--muted);
+}
+.servo-track {
+  height: 4px;
+  background: #ebf1ec;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.servo-bar {
+  height: 100%;
+  background: #277857;
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+.hardware-actions {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+/* DIY Guide Modal */
+.diy-modal-intro {
+  margin-bottom: 16px;
+}
+.diy-modal-intro h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #275239;
+  margin-top: 4px;
+}
+.diy-modal-intro p {
+  font-size: 12px;
+  color: #617869;
+  margin-top: 4px;
+}
+.diy-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+}
+.diy-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 5px;
+  transition: all 0.15s;
+}
+.diy-tabs button:hover {
+  background: #f0f6f1;
+  color: var(--ink);
+}
+.diy-tabs button.active {
+  background: #e1efe5;
+  color: #1e5a35;
+  font-weight: 600;
+}
+
+.diy-parts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.part-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.part-number {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  color: #277857;
+  letter-spacing: 0.5px;
+}
+.part-card h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.part-card p {
+  font-size: 11px;
+  color: #607667;
+  margin: 0;
+  line-height: 1.4;
+}
+.part-meta {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+}
+.print-specs-box {
+  grid-column: 1 / -1;
+  background: #f3f7f4;
+  border: 1px dashed #c0d8c6;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 11px;
+  color: #4a6754;
+}
+.print-specs-box strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #235436;
+}
+.print-specs-box ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+.diy-bom-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diy-bom-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.diy-bom-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: #eef4f0;
+  color: #3b5f49;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+.diy-bom-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+.diy-bom-table tfoot td {
+  background: #f5faf6;
+  border-top: 2px solid #b8dac1;
+  color: #1f643b;
+  font-size: 12px;
+}
+.bom-note {
+  font-size: 11px;
+  color: #698070;
+  margin: 4px 0 0;
+}
+
+.diy-wiring-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wiring-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.wiring-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.servo-badge {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  color: #277857;
+}
+.wiring-card strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+.wiring-card p {
+  font-size: 10px;
+  color: #667e6f;
+  margin: 0;
+}
+.wiring-warning-box {
+  background: #fef7ee;
+  border: 1px solid #f2dbb3;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 11px;
+  color: #8c5b16;
+}
+.wiring-warning-box strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #7a4a08;
+}
+.wiring-warning-box p {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,

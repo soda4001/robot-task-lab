@@ -11,6 +11,42 @@ import {
 
 export const HOME: Point = { x: 0.05, y: 0.82, z: 0.27 };
 export const SHOULDER: Point = { x: -1.05, y: 0.4, z: -0.19 };
+
+export type ServoAngles = {
+  base: number;
+  shoulder: number;
+  elbow: number;
+  gripper: number;
+};
+
+export function computeServoAngles(position: Point, grip: boolean): ServoAngles {
+  const start = SHOULDER;
+  const end = { x: position.x, y: position.y + 0.22, z: position.z };
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const h = Math.hypot(dx, dz);
+  const v = end.y - start.y;
+  const distance = Math.min(2.099, Math.max(0.201, Math.hypot(h, v)));
+  const a = 0.95;
+  const b = 1.15;
+  const shoulderCos = Math.min(1, Math.max(-1, (a * a + distance * distance - b * b) / (2 * a * distance)));
+  const shoulderAngleRad = Math.atan2(v, h) + Math.acos(shoulderCos);
+  const elbowCos = Math.min(1, Math.max(-1, (a * a + b * b - distance * distance) / (2 * a * b)));
+  const elbowAngleRad = Math.PI - Math.acos(elbowCos);
+
+  const baseDeg = Math.round(90 - Math.atan2(dz, dx) * (180 / Math.PI));
+  const shoulderDeg = Math.round(shoulderAngleRad * (180 / Math.PI));
+  const elbowDeg = Math.round(elbowAngleRad * (180 / Math.PI));
+  const gripperDeg = grip ? 35 : 90;
+
+  return {
+    base: Math.min(180, Math.max(0, baseDeg)),
+    shoulder: Math.min(180, Math.max(0, shoulderDeg)),
+    elbow: Math.min(180, Math.max(0, elbowDeg)),
+    gripper: gripperDeg,
+  };
+}
+
 export type RunStatus = 'ready' | 'running' | 'paused' | 'complete' | 'failed';
 export type LogEntry = { time: number; message: string; kind: 'info' | 'success' | 'error' };
 export type Check = { objectId: ObjectId; passed: boolean; errorMm: number; target: string };

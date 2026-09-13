@@ -44,6 +44,9 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  Cpu,
+  Printer,
+  Wrench,
 } from 'lucide-react';
 import {
   COLORS,
@@ -53,12 +56,13 @@ import {
   downloadText,
   parseProject,
   toPython,
+  toArduino,
   type MissionId,
   type ObjectId,
   type Project,
   type Step,
 } from './model';
-import { Simulation, type RunResult, type Snapshot } from './simulation';
+import { Simulation, computeServoAngles, type RunResult, type ServoAngles, type Snapshot } from './simulation';
 import { Viewport } from './viewport';
 
 const STORAGE_KEY = 'robot-task-lab.project.v1';
@@ -161,10 +165,11 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(() => new Simulation(project).snapshot());
   const [selectedStep, setSelectedStep] = useState(project.steps[0]?.id ?? '');
   const [selectedObject, setSelectedObject] = useState<ObjectId>('coral');
-  const [inspector, setInspector] = useState<'task' | 'objects' | 'runs'>('task');
+  const [inspector, setInspector] = useState<'task' | 'objects' | 'runs' | 'hardware'>('task');
   const [mobileView, setMobileView] = useState<'scene' | 'program' | 'inspector'>('scene');
-  const [modal, setModal] = useState<'library' | 'export' | 'recipe' | 'about' | null>(null);
-  const [exportFormat, setExportFormat] = useState<'json' | 'python'>('json');
+  const [modal, setModal] = useState<'library' | 'export' | 'recipe' | 'about' | 'hardware' | null>(null);
+  const [exportFormat, setExportFormat] = useState<'json' | 'python' | 'arduino'>('arduino');
+  const [hardwareSubTab, setHardwareSubTab] = useState<'parts' | 'bom' | 'wiring'>('parts');
   const [recipeOrder, setRecipeOrder] = useState<'left-to-right' | 'right-to-left' | 'blue-first'>(
     'left-to-right',
   );
@@ -214,7 +219,13 @@ export default function App() {
     liftHeight: project.liftHeight,
     placementOffset: project.placementOffset,
   });
-  const exportText = exportFormat === 'json' ? JSON.stringify(project, null, 2) : toPython(project);
+  const exportText =
+    exportFormat === 'json'
+      ? JSON.stringify(project, null, 2)
+      : exportFormat === 'python'
+        ? toPython(project)
+        : toArduino(project);
+  const liveServos = computeServoAngles(snapshot.position, snapshot.grip);
 
   const NEXT_MISSION: Record<MissionId, MissionId | null> = {
     sort: 'precision',
@@ -524,6 +535,15 @@ export default function App() {
           <button onClick={() => setModal('library')} disabled={busy || testing}>
             <Boxes size={16} />
             Lab library<span className="count">3</span>
+          </button>
+          <button
+            className="diy-nav-btn"
+            onClick={() => setModal('hardware')}
+            disabled={busy || testing}
+            title="3D Print and DIY Hardware Guide"
+          >
+            <Printer size={16} />
+            3D Print & DIY<span className="count diy-badge">MAKER</span>
           </button>
         </nav>
         <div className="header-end">
@@ -968,7 +988,7 @@ export default function App() {
 
         <aside className="inspector-panel">
           <div className="inspector-tabs" role="tablist" aria-label="Inspector">
-            {(['task', 'objects', 'runs'] as const).map((tab) => (
+            {(['task', 'objects', 'runs', 'hardware'] as const).map((tab) => (
               <button
                 role="tab"
                 aria-selected={inspector === tab}
@@ -980,10 +1000,18 @@ export default function App() {
                   <Settings2 size={14} />
                 ) : tab === 'objects' ? (
                   <Box size={14} />
-                ) : (
+                ) : tab === 'runs' ? (
                   <FlaskConical size={14} />
+                ) : (
+                  <Cpu size={14} />
                 )}
-                {tab === 'task' ? 'Task' : tab === 'objects' ? 'Objects' : 'Runs'}
+                {tab === 'task'
+                  ? 'Task'
+                  : tab === 'objects'
+                    ? 'Objects'
+                    : tab === 'runs'
+                      ? 'Runs'
+                      : 'Hardware'}
               </button>
             ))}
           </div>
@@ -1324,6 +1352,116 @@ export default function App() {
                 </section>
               </>
             )}
+            {inspector === 'hardware' && (
+              <>
+                <div className="section-caption">
+                  <span>LIVE SERVO TELEMETRY</span>
+                  <Cpu size={14} />
+                </div>
+                <div className="servo-meters-grid">
+                  <div className="servo-meter-card">
+                    <div className="servo-meter-header">
+                      <span>Base Turntable</span>
+                      <span className="mono servo-pin">PIN 9</span>
+                    </div>
+                    <div className="servo-meter-val">
+                      <strong>{liveServos.base}°</strong>
+                      <small>Yaw</small>
+                    </div>
+                    <div className="servo-track">
+                      <div className="servo-bar" style={{ width: `${(liveServos.base / 180) * 100}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="servo-meter-card">
+                    <div className="servo-meter-header">
+                      <span>Shoulder Link</span>
+                      <span className="mono servo-pin">PIN 10</span>
+                    </div>
+                    <div className="servo-meter-val">
+                      <strong>{liveServos.shoulder}°</strong>
+                      <small>Pitch</small>
+                    </div>
+                    <div className="servo-track">
+                      <div className="servo-bar" style={{ width: `${(liveServos.shoulder / 180) * 100}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="servo-meter-card">
+                    <div className="servo-meter-header">
+                      <span>Elbow Forearm</span>
+                      <span className="mono servo-pin">PIN 11</span>
+                    </div>
+                    <div className="servo-meter-val">
+                      <strong>{liveServos.elbow}°</strong>
+                      <small>Angle</small>
+                    </div>
+                    <div className="servo-track">
+                      <div className="servo-bar" style={{ width: `${(liveServos.elbow / 180) * 100}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="servo-meter-card">
+                    <div className="servo-meter-header">
+                      <span>Parallel Claw</span>
+                      <span className="mono servo-pin">PIN 6</span>
+                    </div>
+                    <div className="servo-meter-val">
+                      <strong>{liveServos.gripper}°</strong>
+                      <small>{snapshot.grip ? 'GRIP' : 'OPEN'}</small>
+                    </div>
+                    <div className="servo-track">
+                      <div className="servo-bar" style={{ width: `${(liveServos.gripper / 180) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                <section className="inspector-section">
+                  <div className="section-caption">
+                    <span>PHYSICAL ROBOT SPECS</span>
+                    <Wrench size={13} />
+                  </div>
+                  <div className="data-row">
+                    <span>Target Servos</span>
+                    <span className="mono">4x SG90 / MG90S</span>
+                  </div>
+                  <div className="data-row">
+                    <span>Upper Link Length</span>
+                    <span className="mono">190 mm (Scale 1:5)</span>
+                  </div>
+                  <div className="data-row">
+                    <span>Forearm Link Length</span>
+                    <span className="mono">230 mm</span>
+                  </div>
+                  <div className="data-row">
+                    <span>Max Payload</span>
+                    <span className="mono">150 g</span>
+                  </div>
+                </section>
+
+                <div className="hardware-actions">
+                  <button
+                    className="button primary small"
+                    onClick={() => {
+                      setExportFormat('arduino');
+                      setModal('export');
+                    }}
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    <Download size={14} />
+                    Download Arduino Sketch (.ino)
+                  </button>
+                  <button
+                    className="button small"
+                    onClick={() => setModal('hardware')}
+                    style={{ width: '100%', justifyContent: 'center', marginTop: '6px' }}
+                  >
+                    <Printer size={14} />
+                    View 3D Print &amp; Build Guide
+                  </button>
+                </div>
+              </>
+            )}
           </div>
           <div className="robot-telemetry">
             <div className="telemetry-title">
@@ -1518,6 +1656,13 @@ export default function App() {
         <Modal title="Export project" close={() => setModal(null)} wide>
           <div className="export-tabs">
             <button
+              className={exportFormat === 'arduino' ? 'active' : ''}
+              onClick={() => setExportFormat('arduino')}
+            >
+              <Cpu size={16} />
+              Arduino (.ino)
+            </button>
+            <button
               className={exportFormat === 'json' ? 'active' : ''}
               onClick={() => setExportFormat('json')}
             >
@@ -1534,7 +1679,11 @@ export default function App() {
           </div>
           <div className="code-heading">
             <span className="mono">
-              {exportFormat === 'json' ? 'robot-task.json' : 'robot_task.py'}
+              {exportFormat === 'arduino'
+                ? 'robot_arm.ino'
+                : exportFormat === 'json'
+                  ? 'robot-task.json'
+                  : 'robot_task.py'}
             </span>
             <IconButton
               label="Copy exported code"
@@ -1555,21 +1704,234 @@ export default function App() {
           </pre>
           <footer className="modal-footer">
             <span>
-              {exportFormat === 'json' ? 'Portable project file' : 'Python 3.10+ / Dry-run adapter'}
+              {exportFormat === 'arduino'
+                ? 'Ready for Arduino IDE 1.8+ / 2.0+ (Servo.h)'
+                : exportFormat === 'json'
+                  ? 'Portable project file'
+                  : 'Python 3.10+ / Dry-run adapter'}
             </span>
             <button
               className="button primary"
               onClick={() => {
                 downloadText(
-                  exportFormat === 'json' ? 'robot-task.json' : 'robot_task.py',
+                  exportFormat === 'arduino'
+                    ? 'robot_arm.ino'
+                    : exportFormat === 'json'
+                      ? 'robot-task.json'
+                      : 'robot_task.py',
                   exportText,
-                  exportFormat === 'json' ? 'application/json' : 'text/x-python',
+                  exportFormat === 'arduino'
+                    ? 'text/x-c++src'
+                    : exportFormat === 'json'
+                      ? 'application/json'
+                      : 'text/x-python',
                 );
                 notify('Export downloaded.');
               }}
             >
               <Download size={15} />
               Download
+            </button>
+          </footer>
+        </Modal>
+      )}
+
+      {modal === 'hardware' && (
+        <Modal title="3D Print & DIY Robot Build Guide" close={() => setModal(null)} wide>
+          <div className="diy-modal-intro">
+            <span className="eyebrow">PHYSICAL TWIN BLUEPRINT</span>
+            <h2>Build this 4-Axis Arm for Under $25</h2>
+            <p>
+              Transform your virtual Robot Task Lab into a real physical desktop manipulator using standard 3D-printed parts and ultra-affordable micro servos.
+            </p>
+          </div>
+
+          <div className="diy-tabs" role="tablist">
+            <button
+              className={hardwareSubTab === 'parts' ? 'active' : ''}
+              onClick={() => setHardwareSubTab('parts')}
+            >
+              <Printer size={15} />
+              3D Printed Parts (4)
+            </button>
+            <button
+              className={hardwareSubTab === 'bom' ? 'active' : ''}
+              onClick={() => setHardwareSubTab('bom')}
+            >
+              <Wrench size={15} />
+              Shopping List (BOM &lt; $25)
+            </button>
+            <button
+              className={hardwareSubTab === 'wiring' ? 'active' : ''}
+              onClick={() => setHardwareSubTab('wiring')}
+            >
+              <Cpu size={15} />
+              Circuit & Arduino Pinout
+            </button>
+          </div>
+
+          <div className="diy-tab-content">
+            {hardwareSubTab === 'parts' && (
+              <div className="diy-parts-grid">
+                <div className="part-card">
+                  <div className="part-number">PART 01</div>
+                  <h4>Base Turntable Swivel</h4>
+                  <p>Rotates the entire arm 180° horizontally. Houses the base servo horn and thrust washer.</p>
+                  <div className="part-meta">
+                    <span>Weight: ~45g</span>
+                    <span>Print Time: ~2.5 hrs</span>
+                  </div>
+                </div>
+
+                <div className="part-card">
+                  <div className="part-number">PART 02</div>
+                  <h4>Shoulder Fork Bracket</h4>
+                  <p>Connects the rotating turntable to the upper arm link. Holds the shoulder pitch servo.</p>
+                  <div className="part-meta">
+                    <span>Weight: ~35g</span>
+                    <span>Print Time: ~2.0 hrs</span>
+                  </div>
+                </div>
+
+                <div className="part-card">
+                  <div className="part-number">PART 03</div>
+                  <h4>Upper & Forearm Links</h4>
+                  <p>190mm and 230mm lightweight truss linkages with M3 pivot bearings for low inertia.</p>
+                  <div className="part-meta">
+                    <span>Weight: ~40g</span>
+                    <span>Print Time: ~2.5 hrs</span>
+                  </div>
+                </div>
+
+                <div className="part-card">
+                  <div className="part-number">PART 04</div>
+                  <h4>Parallel Gripper Assembly</h4>
+                  <p>Rack-and-pinion 2-finger claw mechanism. Opens up to 80mm to grip sorting blocks.</p>
+                  <div className="part-meta">
+                    <span>Weight: ~60g</span>
+                    <span>Print Time: ~3.5 hrs</span>
+                  </div>
+                </div>
+
+                <div className="print-specs-box">
+                  <strong>Recommended 3D Print Settings:</strong>
+                  <ul>
+                    <li>Material: PLA, PLA+, or PETG filament</li>
+                    <li>Layer Height: 0.20 mm (Standard quality)</li>
+                    <li>Infill: 25% - 30% Gyroid or Grid</li>
+                    <li>Walls: 3 perimeters for mechanical stiffness</li>
+                    <li>Total Filament: ~180g (costs ~$4-5 of a standard 1kg spool)</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {hardwareSubTab === 'bom' && (
+              <div className="diy-bom-table-wrap">
+                <table className="diy-bom-table">
+                  <thead>
+                    <tr>
+                      <th>Component</th>
+                      <th>Qty</th>
+                      <th>Specification</th>
+                      <th>Est. Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>Micro Servos</strong></td>
+                      <td>4x</td>
+                      <td>SG90 (Plastic) or MG90S (Metal Gear recommended)</td>
+                      <td>$8.00</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Microcontroller</strong></td>
+                      <td>1x</td>
+                      <td>Arduino Uno R3, Nano, or ESP32 board</td>
+                      <td>$5.00</td>
+                    </tr>
+                    <tr>
+                      <td><strong>DC Power Supply</strong></td>
+                      <td>1x</td>
+                      <td>5V 2A ~ 3A DC Wall Adapter (or 4xAA battery pack)</td>
+                      <td>$4.50</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Hardware Screws</strong></td>
+                      <td>1 set</td>
+                      <td>Assorted M3 Bolts (M3x8, M3x12, M3x20) and M3 Nuts</td>
+                      <td>$3.00</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Wiring & Breadboard</strong></td>
+                      <td>1 set</td>
+                      <td>Male-to-male jumper wires & mini solderless breadboard</td>
+                      <td>$2.00</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={3}><strong>Total Estimated DIY Hardware Cost</strong></td>
+                      <td><strong>~$22.50 (under 35,000 KRW)</strong></td>
+                    </tr>
+                  </tfoot>
+                </table>
+                <p className="bom-note">
+                  💡 All components are standard maker electronics widely available on AliExpress, Amazon, or local shops.
+                </p>
+              </div>
+            )}
+
+            {hardwareSubTab === 'wiring' && (
+              <div className="diy-wiring-guide">
+                <div className="wiring-cards-grid">
+                  <div className="wiring-card">
+                    <span className="servo-badge">BASE SERVO</span>
+                    <strong>Pin 9 (PWM)</strong>
+                    <p>Controls horizontal yaw rotation (0° to 180°)</p>
+                  </div>
+                  <div className="wiring-card">
+                    <span className="servo-badge">SHOULDER SERVO</span>
+                    <strong>Pin 10 (PWM)</strong>
+                    <p>Controls arm elevation and reach</p>
+                  </div>
+                  <div className="wiring-card">
+                    <span className="servo-badge">ELBOW SERVO</span>
+                    <strong>Pin 11 (PWM)</strong>
+                    <p>Controls forearm angle and height</p>
+                  </div>
+                  <div className="wiring-card">
+                    <span className="servo-badge">GRIPPER SERVO</span>
+                    <strong>Pin 6 (PWM)</strong>
+                    <p>Controls claw pinch (35° Grip / 90° Open)</p>
+                  </div>
+                </div>
+
+                <div className="wiring-warning-box">
+                  <strong>⚠️ Critical Wiring Rule (Common Ground):</strong>
+                  <p>
+                    Do <strong>NOT</strong> power the 4 servos directly from the Arduino's 5V pin! Servos draw up to 1.5A under load and will cause the Arduino to reset or overheat.
+                  </p>
+                  <p>
+                    Connect the <strong>Red (+)</strong> servo wires directly to the external 5V power supply (+), and the <strong>Brown/Black (-)</strong> wires to external GND.
+                    Then connect external GND to <strong>Arduino GND</strong> so they share a common reference.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <footer className="modal-footer">
+            <span>Ready to test the code on real hardware?</span>
+            <button
+              className="button primary"
+              onClick={() => {
+                setExportFormat('arduino');
+                setModal('export');
+              }}
+            >
+              <Download size={15} />
+              Download Arduino (.ino) Sketch
             </button>
           </footer>
         </Modal>

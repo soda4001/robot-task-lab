@@ -188,6 +188,171 @@ if __name__ == '__main__':
 `;
 }
 
+export function toArduino(project: Project): string {
+  const steps = project.steps.filter((s) => s.enabled);
+  const targets = Object.fromEntries(MISSIONS[project.mission].targets.map((t) => [t.id, t]));
+  const positions = seededPositions(project.seed);
+
+  // Approximate servo mapping for desktop 4-axis arm:
+  // Base: 0-180 (center 90)
+  // Shoulder: 0-180 (lower = down, higher = back)
+  // Elbow: 0-180
+  // Gripper: 35 (closed/grip), 90 (open)
+  const angleMap: Record<ObjectId, { pickBase: number; pickShoulder: number; pickElbow: number }> = {
+    coral: {
+      pickBase: Math.round(75 + positions.coral.x * 25),
+      pickShoulder: 105,
+      pickElbow: 65,
+    },
+    mint: {
+      pickBase: Math.round(90 + positions.mint.x * 25),
+      pickShoulder: 110,
+      pickElbow: 70,
+    },
+    blue: {
+      pickBase: Math.round(105 + positions.blue.x * 25),
+      pickShoulder: 105,
+      pickElbow: 65,
+    },
+  };
+
+  const stepsCode = steps
+    .map((step, idx) => {
+      const obj = step.objectId;
+      const t = targets[step.targetId];
+      const pick = angleMap[obj];
+      const placeBase = Math.round(90 + (t?.x ?? 0) * 40);
+      const placeShoulder = 100;
+      const placeElbow = 70;
+
+      return `  // --- Task ${idx + 1}: Pick ${obj} -> Place ${t?.name ?? 'Target'} ---
+  Serial.println(F("Task ${idx + 1}: Pick ${obj}"));
+  // 1. Move above ${obj}
+  moveTo(${pick.pickBase}, 75, 100, 90, 15);
+  delay(200);
+  // 2. Lower to grab ${obj}
+  moveTo(${pick.pickBase}, ${pick.pickShoulder}, ${pick.pickElbow}, 90, 20);
+  delay(300);
+  // 3. Close gripper (GRIP)
+  moveTo(${pick.pickBase}, ${pick.pickShoulder}, ${pick.pickElbow}, 35, 10);
+  delay(400);
+  // 4. Lift up
+  moveTo(${pick.pickBase}, 75, 100, 35, 15);
+  delay(250);
+
+  Serial.println(F("Placing at ${t?.name ?? 'Destination'}"));
+  // 5. Move above destination
+  moveTo(${placeBase}, 75, 100, 35, 15);
+  delay(200);
+  // 6. Lower into place
+  moveTo(${placeBase}, ${placeShoulder}, ${placeElbow}, 35, 20);
+  delay(300);
+  // 7. Open gripper (RELEASE)
+  moveTo(${placeBase}, ${placeShoulder}, ${placeElbow}, 90, 10);
+  delay(400);
+  // 8. Return to safe transit height
+  moveTo(${placeBase}, 75, 100, 90, 15);
+  delay(250);`;
+    })
+    .join('\n\n');
+
+  return `/*
+  ======================================================
+  Robot Task Lab - 4-Axis DIY Arduino Control Sketch
+  Mission: ${project.mission.toUpperCase()} (Seed: ${project.seed})
+  Generated: ${new Date().toISOString().slice(0, 10)}
+  ======================================================
+  
+  [Hardware Requirements]
+    - Arduino Uno, Nano, or ESP32
+    - 4x Micro Servos (SG90 or MG90S metal-gear)
+    - 3D-printed 4-axis arm mechanical parts
+  
+  [Wiring Pinout]
+    - Pin 9  -> Base Turntable Servo   (Yaw 0° - 180°)
+    - Pin 10 -> Shoulder Servo          (Pitch 0° - 180°)
+    - Pin 11 -> Elbow Servo             (Forearm 0° - 180°)
+    - Pin 6  -> Gripper Claw Servo      (35° Grip, 90° Open)
+  
+  [IMPORTANT POWER NOTE]
+    Never power 4 servos directly from the Arduino 5V pin!
+    Connect an external 5V 2A-3A DC power supply to the servo
+    power wires (Red), and connect the power supply GND to
+    Arduino GND (Common Ground).
+*/
+
+#include <Servo.h>
+
+Servo servoBase;
+Servo servoShoulder;
+Servo servoElbow;
+Servo servoGripper;
+
+int curBase = 90;
+int curShoulder = 75;
+int curElbow = 100;
+int curGripper = 90;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println(F("Robot Task Lab - Arm Initializing..."));
+
+  servoBase.attach(9);
+  servoShoulder.attach(10);
+  servoElbow.attach(11);
+  servoGripper.attach(6);
+
+  // Move to initial Home position
+  moveTo(90, 75, 100, 90, 20);
+  delay(1000);
+  Serial.println(F("Home position reached. Starting mission routine..."));
+}
+
+void moveTo(int targetBase, int targetShoulder, int targetElbow, int targetGripper, int speedDelay = 15) {
+  targetBase = constrain(targetBase, 0, 180);
+  targetShoulder = constrain(targetShoulder, 0, 180);
+  targetElbow = constrain(targetElbow, 0, 180);
+  targetGripper = constrain(targetGripper, 0, 180);
+
+  int maxSteps = max(abs(targetBase - curBase),
+                 max(abs(targetShoulder - curShoulder),
+                 max(abs(targetElbow - curElbow),
+                     abs(targetGripper - curGripper))));
+
+  for (int step = 0; step <= maxSteps; step++) {
+    int b = curBase + (targetBase - curBase) * step / max(1, maxSteps);
+    int s = curShoulder + (targetShoulder - curShoulder) * step / max(1, maxSteps);
+    int e = curElbow + (targetElbow - curElbow) * step / max(1, maxSteps);
+    int g = curGripper + (targetGripper - curGripper) * step / max(1, maxSteps);
+
+    servoBase.write(b);
+    servoShoulder.write(s);
+    servoElbow.write(e);
+    servoGripper.write(g);
+    delay(speedDelay);
+  }
+
+  curBase = targetBase;
+  curShoulder = targetShoulder;
+  curElbow = targetElbow;
+  curGripper = targetGripper;
+}
+
+void loop() {
+${stepsCode}
+
+  Serial.println(F("Routine complete! Returning Home."));
+  moveTo(90, 75, 100, 90, 20);
+
+  // Stop repeating (remove the while loop below if you want it to loop indefinitely)
+  Serial.println(F("Execution finished. Halting."));
+  while (true) {
+    delay(1000);
+  }
+}
+`;
+}
+
 export function downloadText(name: string, text: string, type = 'application/json') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
