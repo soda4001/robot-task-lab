@@ -267,18 +267,33 @@ export class Simulation {
           const leftOverlapX = targetX - 0.171 < bMaxX && targetX - 0.139 > bMinX;
           const rightOverlapX = targetX + 0.139 < bMaxX && targetX + 0.171 > bMinX;
 
-          // If either finger horizontally overlaps the block
+          // If either finger horizontally contacts/overlaps the block
           if (leftOverlapX || rightOverlapX) {
             if (fMinY < bMaxY && fMaxY > bMinY) {
               if (dy < 0 || this.position.y >= bMaxY + 0.04) {
-                // Stopped on top of block
+                // Stopped on top of block, wedge block slightly outwards
                 targetY = Math.max(targetY, bMaxY + 0.045);
+                const pushOutX = bx >= targetX ? 0.015 : -0.015;
+                body.position.x += pushOutX;
+                body.velocity.x = pushOutX * 10;
+                body.wakeUp();
               } else {
-                // Pushed sideways away from block
+                // Moving horizontally into block: physically push the block!
+                const pushX = dx !== 0 ? dx : (rightOverlapX ? 0.02 : -0.02);
+                const pushZ = dz !== 0 ? dz : 0;
+                body.position.x += pushX;
+                body.position.z += pushZ;
+                body.velocity.x = pushX * 20;
+                body.velocity.z = pushZ * 20;
+                body.wakeUp();
+
+                // Keep claw exactly on outer surface without penetrating
+                const newBMinX = body.position.x - 0.09;
+                const newBMaxX = body.position.x + 0.09;
                 if (leftOverlapX) {
-                  targetX = bMaxX + 0.172;
+                  targetX = Math.min(targetX, newBMaxX + 0.171);
                 } else if (rightOverlapX) {
-                  targetX = bMinX - 0.172;
+                  targetX = Math.max(targetX, newBMinX - 0.171);
                 }
               }
             }
@@ -296,16 +311,24 @@ export class Simulation {
             }
           }
 
-          // Front/Back finger penetration prevention
+          // Front/Back finger contact: push block in Z direction
           const clawMinX = targetX - 0.171;
           const clawMaxX = targetX + 0.171;
           if (clawMinX < bMaxX && clawMaxX > bMinX && fMinY < bMaxY && fMaxY > bMinY) {
             const isBetweenFingers = Math.abs(targetX - bx) <= 0.045;
             if (!isBetweenFingers) {
               if (targetZ < bz && targetZ + 0.06 > bMinZ) {
-                targetZ = bMinZ - 0.061;
+                const pushZ = dz > 0 ? dz : 0.02;
+                body.position.z += pushZ;
+                body.velocity.z = pushZ * 20;
+                body.wakeUp();
+                targetZ = Math.min(targetZ, body.position.z - 0.09 - 0.061);
               } else if (targetZ > bz && targetZ - 0.06 < bMaxZ) {
-                targetZ = bMaxZ + 0.061;
+                const pushZ = dz < 0 ? dz : -0.02;
+                body.position.z += pushZ;
+                body.velocity.z = pushZ * 20;
+                body.wakeUp();
+                targetZ = Math.max(targetZ, body.position.z + 0.09 + 0.061);
               }
             }
           }
@@ -329,6 +352,14 @@ export class Simulation {
           if (hDist < minClearance && hDist > 0.001) {
             const nx = (targetX - other.position.x) / hDist;
             const nz = (targetZ - other.position.z) / hDist;
+            const pushDist = (minClearance - hDist);
+            // Physically push the other block away!
+            other.position.x -= nx * pushDist;
+            other.position.z -= nz * pushDist;
+            other.velocity.x = -nx * pushDist * 20;
+            other.velocity.z = -nz * pushDist * 20;
+            other.wakeUp();
+
             targetX = other.position.x + nx * minClearance;
             targetZ = other.position.z + nz * minClearance;
             heldBody.position.set(targetX, targetY - 0.035, targetZ);
