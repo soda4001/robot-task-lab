@@ -25,6 +25,24 @@ export type Mission = {
   targets: Target[];
 };
 
+export type TrajectoryPoint = {
+  t: number;
+  x: number;
+  y: number;
+  z: number;
+  grip: boolean;
+};
+
+export type Demonstration = {
+  id: string;
+  name: string;
+  recordedAt: string;
+  mission: MissionId;
+  seed: number;
+  duration: number;
+  points: TrajectoryPoint[];
+};
+
 export const MISSIONS: Record<MissionId, Mission> = {
   sort: {
     id: 'sort',
@@ -349,6 +367,159 @@ ${stepsCode}
   while (true) {
     delay(1000);
   }
+}
+`;
+}
+
+export function demonstrationToPython(demo: Demonstration): string {
+  const pointsSample = demo.points.map(
+    (p) => `    (${p.t.toFixed(3)}, ${p.x.toFixed(4)}, ${p.y.toFixed(4)}, ${p.z.toFixed(4)}, ${p.grip ? 'True' : 'False'}),`
+  ).join('\n');
+
+  return `"""Robot Task Lab: Recorded Demonstration (Imitation Learning Replay).
+
+Replay file for demonstration: "${demo.name}"
+Recorded: ${demo.recordedAt}
+Total Duration: ${demo.duration.toFixed(2)}s | Waypoints: ${demo.points.length}
+Target Mission: ${demo.mission.toUpperCase()} (Seed: ${demo.seed})
+
+This script contains the time-synchronized Cartesian trajectory and claw actions
+captured during human teleoperation.
+"""
+import time
+from dataclasses import dataclass
+
+# Waypoints format: (time_seconds, x_meters, y_meters, z_meters, claw_closed)
+TRAJECTORY = [
+${pointsSample}
+]
+
+@dataclass
+class RobotAdapter:
+    def move_to(self, x: float, y: float, z: float):
+        print(f"Move arm -> x={x:+.3f}m, y={y:+.3f}m, z={z:+.3f}m")
+
+    def set_gripper(self, closed: bool):
+        state = "CLOSED (GRIP)" if closed else "OPEN (RELEASE)"
+        print(f"Gripper -> {state}")
+
+def replay(robot: RobotAdapter, speed: float = 1.0):
+    print(f"--- Replaying Demonstration '${demo.name.replace(/'/g, "\\'")}' (${demo.points.length} waypoints) ---")
+    start_real_time = time.time()
+    for idx, (t, x, y, z, grip) in enumerate(TRAJECTORY):
+        # Target timing synchronization
+        target_time = t / max(0.1, speed)
+        elapsed = time.time() - start_real_time
+        if target_time > elapsed:
+            time.sleep(target_time - elapsed)
+
+        robot.move_to(x, y, z)
+        robot.set_gripper(grip)
+
+    print("Replay completed successfully!")
+
+if __name__ == '__main__':
+    replay(RobotAdapter())
+`;
+}
+
+export function demonstrationToArduino(demo: Demonstration): string {
+  // Downsample to ~150ms intervals so Arduino PROGMEM isn't exhausted
+  const sampled: TrajectoryPoint[] = [];
+  let lastT = -1;
+  let lastGrip = false;
+  for (const p of demo.points) {
+    if (lastT < 0 || p.t - lastT >= 0.12 || p.grip !== lastGrip) {
+      sampled.push(p);
+      lastT = p.t;
+      lastGrip = p.grip;
+    }
+  }
+
+  // Calculate approximate 4-axis servo angles for each point
+  const SHOULDER_X = -1.05;
+  const SHOULDER_Y = 0.4;
+  const SHOULDER_Z = -0.19;
+
+  const waypoints = sampled.map((p) => {
+    const endX = p.x;
+    const endY = p.y + 0.22;
+    const endZ = p.z;
+    const dx = endX - SHOULDER_X;
+    const dz = endZ - SHOULDER_Z;
+    const h = Math.hypot(dx, dz);
+    const v = endY - SHOULDER_Y;
+    const distance = Math.min(2.099, Math.max(0.201, Math.hypot(h, v)));
+    const a = 0.95;
+    const b = 1.15;
+    const shoulderCos = Math.min(1, Math.max(-1, (a * a + distance * distance - b * b) / (2 * a * distance)));
+    const shoulderAngleRad = Math.atan2(v, h) + Math.acos(shoulderCos);
+    const elbowCos = Math.min(1, Math.max(-1, (a * a + b * b - distance * distance) / (2 * a * b)));
+    const elbowAngleRad = Math.PI - Math.acos(elbowCos);
+
+    const base = Math.min(180, Math.max(0, Math.round(90 - Math.atan2(dz, dx) * (180 / Math.PI))));
+    const shoulder = Math.min(180, Math.max(0, Math.round(shoulderAngleRad * (180 / Math.PI))));
+    const elbow = Math.min(180, Math.max(0, Math.round(elbowAngleRad * (180 / Math.PI))));
+    const gripper = p.grip ? 35 : 90;
+    return `  { ${base}, ${shoulder}, ${elbow}, ${gripper} }, // t=${p.t.toFixed(2)}s`;
+  });
+
+  return `/*
+  ======================================================
+  Robot Task Lab - Imitation Learning Demonstration Replay
+  Demonstration: ${demo.name}
+  Duration: ${demo.duration.toFixed(2)}s (${sampled.length} keyframes)
+  ======================================================
+*/
+#include <Servo.h>
+
+Servo servoBase;
+Servo servoShoulder;
+Servo servoElbow;
+Servo servoGripper;
+
+// Trajectory keyframes: { Base, Shoulder, Elbow, Gripper }
+const uint8_t PROGMEM TRAJECTORY[][4] = {
+${waypoints.join('\n')}
+};
+const int TOTAL_KEYFRAMES = ${sampled.length};
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println(F("Initializing Robot Task Lab Replay..."));
+
+  servoBase.attach(9);
+  servoShoulder.attach(10);
+  servoElbow.attach(11);
+  servoGripper.attach(6);
+
+  // Home position
+  servoBase.write(90);
+  servoShoulder.write(75);
+  servoElbow.write(100);
+  servoGripper.write(90);
+  delay(1500);
+
+  Serial.println(F("Starting autonomous demonstration replay..."));
+  for (int i = 0; i < TOTAL_KEYFRAMES; i++) {
+    uint8_t b = pgm_read_byte(&(TRAJECTORY[i][0]));
+    uint8_t s = pgm_read_byte(&(TRAJECTORY[i][1]));
+    uint8_t e = pgm_read_byte(&(TRAJECTORY[i][2]));
+    uint8_t g = pgm_read_byte(&(TRAJECTORY[i][3]));
+
+    servoBase.write(b);
+    servoShoulder.write(s);
+    servoElbow.write(e);
+    servoGripper.write(g);
+    delay(120); // sample interval
+  }
+
+  Serial.println(F("Replay complete!"));
+}
+
+void loop() {
+  // Idle after replay
+  delay(1000);
 }
 `;
 }

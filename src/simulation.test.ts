@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { createProject, parseProject, seededPositions, toPython } from './model';
+import {
+  createProject,
+  parseProject,
+  seededPositions,
+  toPython,
+  demonstrationToPython,
+  demonstrationToArduino,
+} from './model';
 import { Simulation, benchmark } from './simulation';
 
 describe('physical task validation', () => {
@@ -164,5 +171,83 @@ describe('portable project format', () => {
     expect(output).toContain('PICK coral');
     expect(output).toContain('y=0.450');
     expect(output.trim().split('\n')).toHaveLength(3);
+  });
+});
+
+describe('imitation learning & demonstration teaching', () => {
+  it('records teleoperation waypoints, time, and gripper changes', () => {
+    const sim = new Simulation(createProject());
+    sim.startTeleop();
+    sim.startRecordingDemo();
+    expect(sim.isRecording).toBe(true);
+
+    // Initial point captured at t=0
+    expect(sim.recordedTrajectory.length).toBeGreaterThanOrEqual(1);
+
+    // Simulate motion and tick
+    sim.teleopMove(0.05, -0.02, 0.04);
+    sim.tick(1 / 10);
+    sim.teleopToggleGrip(); // toggle claw
+    sim.tick(1 / 10);
+
+    const demo = sim.stopRecordingDemo();
+    expect(sim.isRecording).toBe(false);
+    expect(demo.points.length).toBeGreaterThanOrEqual(2);
+    expect(demo.duration).toBeGreaterThan(0.1);
+    expect(demo.mission).toBe('sort');
+    expect(demo.points.some((p) => p.grip)).toBe(true);
+  });
+
+  it('autonomously replays a recorded demonstration trajectory', () => {
+    const sim = new Simulation(createProject());
+    sim.startTeleop();
+    sim.startRecordingDemo();
+
+    // Move arm and tick
+    sim.teleopMove(0.08, 0, 0);
+    sim.tick(0.2);
+    sim.teleopMove(0, 0.05, 0);
+    sim.tick(0.2);
+    const demo = sim.stopRecordingDemo();
+
+    // Create fresh simulation with same seed and play demonstration
+    const replaySim = new Simulation(createProject());
+    replaySim.playDemonstration(demo);
+    expect(replaySim.isReplayingDemo).toBe(true);
+    expect(replaySim.status).toBe('running');
+
+    // Tick through playback duration
+    for (let i = 0; i < 60; i++) {
+      replaySim.tick(1 / 30);
+      if (!replaySim.isReplayingDemo) break;
+    }
+
+    // After playback finishes, simulation status transitions out of replaying
+    expect(replaySim.isReplayingDemo).toBe(false);
+  });
+
+  it('exports demonstration to executable Python and Arduino sketch', () => {
+    const sim = new Simulation(createProject());
+    sim.startTeleop();
+    sim.startRecordingDemo();
+    sim.teleopMove(0.02, -0.01, 0.03);
+    sim.tick(0.15);
+    sim.teleopToggleGrip();
+    sim.tick(0.15);
+    const demo = sim.stopRecordingDemo();
+
+    const py = demonstrationToPython(demo);
+    expect(py).toContain('TRAJECTORY = [');
+    expect(py).toContain('def replay(');
+
+    // Verify Python executes cleanly
+    const pyOutput = execFileSync('python', ['-c', py], { encoding: 'utf8' });
+    expect(pyOutput).toContain('Replaying Demonstration');
+    expect(pyOutput).toContain('Replay completed successfully!');
+
+    const ino = demonstrationToArduino(demo);
+    expect(ino).toContain('PROGMEM TRAJECTORY');
+    expect(ino).toContain('TOTAL_KEYFRAMES');
+    expect(ino).toContain('servoBase.write');
   });
 });

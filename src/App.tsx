@@ -52,6 +52,7 @@ import {
   Cpu,
   Printer,
   Wrench,
+  Sparkles,
 } from 'lucide-react';
 import {
   COLORS,
@@ -62,6 +63,9 @@ import {
   parseProject,
   toPython,
   toArduino,
+  demonstrationToPython,
+  demonstrationToArduino,
+  type Demonstration,
   type MissionId,
   type ObjectId,
   type Project,
@@ -173,7 +177,10 @@ export default function App() {
   const [inspector, setInspector] = useState<'task' | 'objects' | 'runs' | 'hardware'>('task');
   const [mobileView, setMobileView] = useState<'scene' | 'program' | 'inspector'>('scene');
   const [modal, setModal] = useState<'library' | 'export' | 'recipe' | 'about' | 'hardware' | null>(null);
-  const [exportFormat, setExportFormat] = useState<'json' | 'python' | 'arduino'>('arduino');
+  const [exportFormat, setExportFormat] = useState<
+    'json' | 'python' | 'arduino' | 'demo-py' | 'demo-ino'
+  >('arduino');
+  const [savedDemonstration, setSavedDemonstration] = useState<Demonstration | null>(null);
   const [hardwareSubTab, setHardwareSubTab] = useState<'parts' | 'bom' | 'wiring'>('parts');
   const [recipeOrder, setRecipeOrder] = useState<'left-to-right' | 'right-to-left' | 'blue-first'>(
     'left-to-right',
@@ -284,7 +291,15 @@ export default function App() {
       ? JSON.stringify(project, null, 2)
       : exportFormat === 'python'
         ? toPython(project)
-        : toArduino(project);
+        : exportFormat === 'demo-py'
+          ? (savedDemonstration
+              ? demonstrationToPython(savedDemonstration)
+              : '# No demonstration recorded yet.\n# Enter Direct Drive mode and click [Record Demonstration] to teach the robot!')
+          : exportFormat === 'demo-ino'
+            ? (savedDemonstration
+                ? demonstrationToArduino(savedDemonstration)
+                : '// No demonstration recorded yet.\n// Enter Direct Drive mode and click [Record Demonstration] to teach the robot!')
+            : toArduino(project);
   const liveServos = computeServoAngles(snapshot.position, snapshot.grip);
 
   const NEXT_MISSION: Record<MissionId, MissionId | null> = {
@@ -371,6 +386,9 @@ export default function App() {
   function toggleTeleop() {
     if (!simulation.current) return;
     if (snapshot.status === 'teleop') {
+      if (simulation.current.isRecording) {
+        simulation.current.cancelRecordingDemo();
+      }
       simulation.current.stopTeleop();
       teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
       setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
@@ -383,6 +401,49 @@ export default function App() {
       simulation.current.startTeleop();
       setSnapshot(simulation.current.snapshot());
     }
+  }
+
+  function startRecordingDemo() {
+    if (!simulation.current) return;
+    simulation.current.startRecordingDemo();
+    setSnapshot(simulation.current.snapshot());
+    notify('Demonstration recording started! Guide the arm to teach the task.');
+  }
+
+  function stopRecordingDemo() {
+    if (!simulation.current) return;
+    const demo = simulation.current.stopRecordingDemo();
+    setSavedDemonstration(demo);
+    setSnapshot(simulation.current.snapshot());
+    notify(`Learned Demonstration saved (${demo.points.length} waypoints, ${demo.duration.toFixed(1)}s)!`);
+  }
+
+  function cancelRecordingDemo() {
+    if (!simulation.current) return;
+    simulation.current.cancelRecordingDemo();
+    setSnapshot(simulation.current.snapshot());
+    notify('Demonstration recording cancelled.');
+  }
+
+  function replayDemonstration() {
+    if (!savedDemonstration) return;
+    if (!dismissedOnboarding) {
+      setDismissedOnboarding(true);
+      try {
+        localStorage.setItem('rtl_onboarding_dismissed', '1');
+      } catch {}
+    }
+    if (snapshot.status === 'teleop') {
+      simulation.current?.stopTeleop();
+      teleopKeys.current = { forward: false, backward: false, left: false, right: false, up: false, down: false };
+      setActiveKeys({ forward: false, backward: false, left: false, right: false, up: false, down: false });
+    }
+    // Clean scene restart with same seed then replay
+    const sim = new Simulation(project);
+    simulation.current = sim;
+    sim.playDemonstration(savedDemonstration);
+    setSnapshot(sim.snapshot());
+    notify(`Replaying learned demonstration (${savedDemonstration.points.length} waypoints)...`);
   }
   function run() {
     if (!dismissedOnboarding) {
@@ -1143,6 +1204,60 @@ export default function App() {
 
               {!hudCollapsed && (
                 <>
+                  <div className="teleop-teaching-strip">
+                    {!snapshot.isRecording ? (
+                      <div className="teaching-idle-bar">
+                        <button
+                          type="button"
+                          className="teaching-rec-btn"
+                          onClick={startRecordingDemo}
+                          title="Record arm motions & claw actions to teach the robot (Imitation Learning)"
+                        >
+                          <CircleDot size={13} className="rec-icon" />
+                          <span>Record Demonstration (시범 녹화)</span>
+                        </button>
+                        {savedDemonstration && (
+                          <button
+                            type="button"
+                            className="teaching-replay-badge-btn"
+                            onClick={replayDemonstration}
+                            title="Replay learned demonstration autonomously"
+                          >
+                            <Play size={12} />
+                            <span>Replay ({savedDemonstration.duration.toFixed(1)}s)</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="teaching-active-bar">
+                        <div className="rec-live-tag">
+                          <span className="rec-pulsing-dot" />
+                          <span className="mono rec-time">REC {snapshot.recordDuration?.toFixed(1)}s</span>
+                          <span className="rec-points-count">({snapshot.recordedPointsCount ?? 0} pts)</span>
+                        </div>
+                        <div className="rec-actions">
+                          <button
+                            type="button"
+                            className="teaching-save-btn"
+                            onClick={stopRecordingDemo}
+                            title="Finish recording and save demonstration"
+                          >
+                            <Check size={13} />
+                            <span>Save & Learn</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="teaching-discard-btn"
+                            onClick={cancelRecordingDemo}
+                            title="Cancel recording"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="teleop-hud-controls">
                     {/* Horizontal / Planar D-Pad */}
                     <div className="teleop-control-block">
@@ -1423,6 +1538,18 @@ export default function App() {
               <Gamepad2 size={15} />
               <span>{isTeleop ? 'Exit Drive' : 'Manual Drive'}</span>
             </button>
+            {savedDemonstration && (
+              <button
+                type="button"
+                className="teaching-transport-replay-btn"
+                title={`Autonomously replay learned demonstration (${savedDemonstration.points.length} waypoints, ${savedDemonstration.duration.toFixed(1)}s)`}
+                onClick={replayDemonstration}
+                disabled={testing}
+              >
+                <Sparkles size={14} className="sparkle-icon" />
+                <span>Replay Learned ({savedDemonstration.duration.toFixed(1)}s)</span>
+              </button>
+            )}
           </div>
         </section>
 
@@ -2116,6 +2243,24 @@ export default function App() {
               <Code2 size={16} />
               Python recipe
             </button>
+            {savedDemonstration && (
+              <>
+                <button
+                  className={exportFormat === 'demo-py' ? 'active' : ''}
+                  onClick={() => setExportFormat('demo-py')}
+                >
+                  <Sparkles size={15} />
+                  Learned Replay (Python)
+                </button>
+                <button
+                  className={exportFormat === 'demo-ino' ? 'active' : ''}
+                  onClick={() => setExportFormat('demo-ino')}
+                >
+                  <Cpu size={15} />
+                  Learned Keyframes (.ino)
+                </button>
+              </>
+            )}
           </div>
           <div className="code-heading">
             <span className="mono">
@@ -2123,7 +2268,11 @@ export default function App() {
                 ? 'robot_arm.ino'
                 : exportFormat === 'json'
                   ? 'robot-task.json'
-                  : 'robot_task.py'}
+                  : exportFormat === 'demo-py'
+                    ? 'robot_imitation_learning.py'
+                    : exportFormat === 'demo-ino'
+                      ? 'robot_trajectory_replay.ino'
+                      : 'robot_task.py'}
             </span>
             <IconButton
               label="Copy exported code"
@@ -2148,7 +2297,11 @@ export default function App() {
                 ? 'Ready for Arduino IDE 1.8+ / 2.0+ (Servo.h)'
                 : exportFormat === 'json'
                   ? 'Portable project file'
-                  : 'Python 3.10+ / Dry-run adapter'}
+                  : exportFormat === 'demo-py'
+                    ? 'Python 3.10+ / LeRobot-style Imitation Learning Trajectory Replay'
+                    : exportFormat === 'demo-ino'
+                      ? 'Arduino 4-Axis PROGMEM Keyframes from Human Demonstration'
+                      : 'Python 3.10+ / Dry-run adapter'}
             </span>
             <button
               className="button primary"
@@ -2158,9 +2311,13 @@ export default function App() {
                     ? 'robot_arm.ino'
                     : exportFormat === 'json'
                       ? 'robot-task.json'
-                      : 'robot_task.py',
+                      : exportFormat === 'demo-py'
+                        ? 'robot_imitation_learning.py'
+                        : exportFormat === 'demo-ino'
+                          ? 'robot_trajectory_replay.ino'
+                          : 'robot_task.py',
                   exportText,
-                  exportFormat === 'arduino'
+                  exportFormat === 'arduino' || exportFormat === 'demo-ino'
                     ? 'text/x-c++src'
                     : exportFormat === 'json'
                       ? 'application/json'

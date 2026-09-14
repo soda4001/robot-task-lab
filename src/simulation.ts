@@ -7,6 +7,8 @@ import {
   type Point,
   type Project,
   type Step,
+  type TrajectoryPoint,
+  type Demonstration,
 } from './model';
 
 export const HOME: Point = { x: 0.05, y: 0.82, z: 0.27 };
@@ -73,6 +75,10 @@ export type Snapshot = {
   objects: Record<ObjectId, Point>;
   logs: LogEntry[];
   result: RunResult | null;
+  isRecording?: boolean;
+  recordedPointsCount?: number;
+  recordDuration?: number;
+  isReplayingDemo?: boolean;
 };
 type Phase = { name: string; duration: number; target?: Point; action?: 'grab' | 'release' };
 
@@ -91,6 +97,16 @@ export class Simulation {
   isClawClosed = false;
   logs: LogEntry[] = [];
   result: RunResult | null = null;
+
+  // Demonstration (Imitation Learning) properties
+  isRecording = false;
+  recordedTrajectory: TrajectoryPoint[] = [];
+  recordTimer = 0;
+  private lastRecordedPoint: TrajectoryPoint | null = null;
+  isReplayingDemo = false;
+  activeDemo: Demonstration | null = null;
+  private demoPlaybackTime = 0;
+
   private constraint: CANNON.LockConstraint | null = null;
   private phases: Phase[] = [];
   private phaseIndex = 0;
@@ -391,12 +407,14 @@ export class Simulation {
       this.held = null;
       this.isClawClosed = false;
       this.log(`Released ${COLORS[released].name}.`);
+      if (this.isRecording) this.sampleRecordingPoint(true);
       return false;
     }
 
     if (this.isClawClosed) {
       this.isClawClosed = false;
       this.log('Gripper opened.');
+      if (this.isRecording) this.sampleRecordingPoint(true);
       return false;
     }
 
@@ -429,12 +447,99 @@ export class Simulation {
       this.held = nearestId;
       this.isClawClosed = true;
       this.log(`Grasped ${COLORS[nearestId].name}!`, 'success');
+      if (this.isRecording) this.sampleRecordingPoint(true);
       return true;
     }
 
     this.isClawClosed = true;
     this.log('Gripper closed (empty air).');
+    if (this.isRecording) this.sampleRecordingPoint(true);
     return true;
+  }
+
+  startRecordingDemo() {
+    this.isRecording = true;
+    this.recordedTrajectory = [];
+    this.recordTimer = 0;
+    const initialPt: TrajectoryPoint = {
+      t: 0,
+      x: Number(this.position.x.toFixed(4)),
+      y: Number(this.position.y.toFixed(4)),
+      z: Number(this.position.z.toFixed(4)),
+      grip: this.held !== null || this.isClawClosed,
+    };
+    this.recordedTrajectory.push(initialPt);
+    this.lastRecordedPoint = initialPt;
+    this.log('Demonstration recording started. Move the arm to demonstrate.', 'info');
+  }
+
+  sampleRecordingPoint(force = false) {
+    if (!this.isRecording) return;
+    const currentGrip = this.held !== null || this.isClawClosed;
+    const last = this.lastRecordedPoint;
+    if (!last) return;
+    const dist = Math.hypot(
+      this.position.x - last.x,
+      this.position.y - last.y,
+      this.position.z - last.z,
+    );
+    const gripChanged = currentGrip !== last.grip;
+    const timeSinceLast = this.recordTimer - last.t;
+
+    if (force || gripChanged || (dist > 0.003 && timeSinceLast >= 0.04) || timeSinceLast >= 0.2) {
+      const pt: TrajectoryPoint = {
+        t: Number(this.recordTimer.toFixed(3)),
+        x: Number(this.position.x.toFixed(4)),
+        y: Number(this.position.y.toFixed(4)),
+        z: Number(this.position.z.toFixed(4)),
+        grip: currentGrip,
+      };
+      this.recordedTrajectory.push(pt);
+      this.lastRecordedPoint = pt;
+    }
+  }
+
+  stopRecordingDemo(): Demonstration {
+    this.sampleRecordingPoint(true);
+    this.isRecording = false;
+    const demo: Demonstration = {
+      id: crypto.randomUUID(),
+      name: `Demo Routine (${new Date().toLocaleTimeString()})`,
+      recordedAt: new Date().toISOString(),
+      mission: this.project.mission,
+      seed: this.project.seed,
+      duration: Math.max(0.1, Number(this.recordTimer.toFixed(2))),
+      points: [...this.recordedTrajectory],
+    };
+    this.log(`Demonstration learned: ${demo.points.length} waypoints (${demo.duration}s). Ready to replay!`, 'success');
+    return demo;
+  }
+
+  cancelRecordingDemo() {
+    this.isRecording = false;
+    this.recordedTrajectory = [];
+    this.recordTimer = 0;
+    this.log('Demonstration recording cancelled.', 'info');
+  }
+
+  playDemonstration(demo: Demonstration) {
+    if (this.isTeleop) {
+      this.stopTeleop();
+    }
+    if (demo.points.length === 0) {
+      this.fail('Demonstration has no recorded waypoints.');
+      return;
+    }
+    const p0 = demo.points[0];
+    this.position = { x: p0.x, y: p0.y, z: p0.z };
+    this.gripper.position.set(p0.x, p0.y, p0.z);
+    this.gripper.velocity.setZero();
+    this.activeDemo = demo;
+    this.isReplayingDemo = true;
+    this.demoPlaybackTime = 0;
+    this.finalSettle = 0;
+    this.status = 'running';
+    this.log(`Replaying learned demonstration "${demo.name}" (${demo.points.length} waypoints)...`, 'info');
   }
 
   canGripBlock(): ObjectId | null {
@@ -520,6 +625,10 @@ export class Simulation {
   tick(dt: number) {
     if (this.status === 'teleop') {
       this.elapsed += dt;
+      if (this.isRecording) {
+        this.recordTimer += dt;
+        this.sampleRecordingPoint(false);
+      }
       this.gripper.velocity.set(
         (this.position.x - this.gripper.position.x) / dt,
         (this.position.y - this.gripper.position.y) / dt,
@@ -542,6 +651,105 @@ export class Simulation {
     if (this.status !== 'running') return;
     this.elapsed += dt;
     this.checkAndRespawnFallenBlocks();
+
+    // Autonomous Demonstration Replay mode
+    if (this.isReplayingDemo && this.activeDemo) {
+      this.demoPlaybackTime += dt;
+      const points = this.activeDemo.points;
+      const t = this.demoPlaybackTime;
+
+      if (t >= this.activeDemo.duration || points.length === 0) {
+        this.isReplayingDemo = false;
+        this.gripper.velocity.setZero();
+        this.world.step(dt);
+        this.finalSettle += dt;
+        if (this.finalSettle >= 0.8) {
+          this.finish();
+        }
+        return;
+      }
+
+      // Interpolate along waypoints
+      let p0 = points[0];
+      let p1 = points[points.length - 1];
+      for (let i = 0; i < points.length - 1; i++) {
+        if (points[i].t <= t && points[i + 1].t >= t) {
+          p0 = points[i];
+          p1 = points[i + 1];
+          break;
+        }
+      }
+
+      const span = Math.max(0.0001, p1.t - p0.t);
+      const ratio = Math.min(1, Math.max(0, (t - p0.t) / span));
+      const next = {
+        x: p0.x + (p1.x - p0.x) * ratio,
+        y: p0.y + (p1.y - p0.y) * ratio,
+        z: p0.z + (p1.z - p0.z) * ratio,
+      };
+
+      this.gripper.velocity.set(
+        (next.x - this.gripper.position.x) / dt,
+        (next.y - this.gripper.position.y) / dt,
+        (next.z - this.gripper.position.z) / dt,
+      );
+      this.position = next;
+      this.world.step(dt);
+
+      // Grip handling during replay
+      const desiredGrip = p0.grip;
+      if (desiredGrip && !this.isClawClosed && this.held === null) {
+        let nearestId: ObjectId | null = null;
+        let minDist = 0.35;
+        for (const id of Object.keys(COLORS) as ObjectId[]) {
+          const body = this.bodies[id];
+          const d = body.position.distanceTo(this.gripper.position);
+          if (d < minDist) {
+            minDist = d;
+            nearestId = id;
+          }
+        }
+        if (nearestId) {
+          const body = this.bodies[nearestId];
+          body.wakeUp();
+          body.position.set(
+            this.gripper.position.x,
+            this.gripper.position.y - 0.035,
+            this.gripper.position.z,
+          );
+          body.quaternion.set(0, 0, 0, 1);
+          body.velocity.setZero();
+          this.constraint = new CANNON.LockConstraint(this.gripper, body, { maxForce: 250 });
+          this.constraint.collideConnected = false;
+          this.world.addConstraint(this.constraint);
+          this.held = nearestId;
+          this.isClawClosed = true;
+          this.log(`Learned routine grasped ${COLORS[nearestId].name}!`, 'info');
+        } else {
+          this.isClawClosed = true;
+        }
+      } else if (!desiredGrip && (this.isClawClosed || this.held !== null)) {
+        if (this.constraint) this.world.removeConstraint(this.constraint);
+        this.constraint = null;
+        const released = this.held;
+        this.held = null;
+        this.isClawClosed = false;
+        if (released) this.log(`Learned routine placed ${COLORS[released].name}.`, 'info');
+      }
+
+      if (this.held !== null) {
+        const heldBody = this.bodies[this.held];
+        heldBody.position.set(
+          this.gripper.position.x,
+          this.gripper.position.y - 0.035,
+          this.gripper.position.z,
+        );
+        heldBody.quaternion.set(0, 0, 0, 1);
+        heldBody.velocity.setZero();
+      }
+      return;
+    }
+
     const phase = this.phases[this.phaseIndex];
     if (!phase) {
       this.gripper.velocity.setZero();
@@ -611,6 +819,8 @@ export class Simulation {
     const checks = this.evaluate();
     const passed = checks.every((c) => c.passed);
     this.status = 'complete';
+    const isDemoRun = this.isReplayingDemo || this.activeDemo !== null;
+    this.isReplayingDemo = false;
     this.result = {
       id: crypto.randomUUID(),
       mission: this.project.mission,
@@ -618,7 +828,7 @@ export class Simulation {
       duration: this.elapsed,
       passed,
       checks,
-      steps: this.completed,
+      steps: isDemoRun ? checks.filter((c) => c.passed).length : this.completed,
       completedAt: new Date().toISOString(),
     };
     this.log(
@@ -667,13 +877,17 @@ export class Simulation {
       phase:
         this.status === 'ready'
           ? 'Ready to run'
-          : this.status === 'teleop'
-            ? (this.held ? `Direct Drive: Holding ${COLORS[this.held].name}` : 'Direct Drive: Manual Control')
-            : this.status === 'complete'
-              ? 'Run complete'
-              : this.status === 'failed'
-                ? 'Run stopped'
-                : (this.phases[this.phaseIndex]?.name ?? 'Validating'),
+          : this.isReplayingDemo
+            ? `Learned Routine: Replaying (${this.demoPlaybackTime.toFixed(1)}s / ${(this.activeDemo?.duration ?? 0).toFixed(1)}s)`
+            : this.status === 'teleop'
+              ? this.isRecording
+                ? `Recording Demo: ${this.recordedTrajectory.length} pts (${this.recordTimer.toFixed(1)}s)`
+                : (this.held ? `Direct Drive: Holding ${COLORS[this.held].name}` : 'Direct Drive: Manual Control')
+              : this.status === 'complete'
+                ? 'Run complete'
+                : this.status === 'failed'
+                  ? 'Run stopped'
+                  : (this.phases[this.phaseIndex]?.name ?? 'Validating'),
       completed: this.completed,
       grip: this.held !== null || this.isClawClosed,
       canGrip: this.canGripBlock() !== null,
@@ -691,6 +905,10 @@ export class Simulation {
       ) as Record<ObjectId, Point>,
       logs: this.logs,
       result: this.result,
+      isRecording: this.isRecording,
+      recordedPointsCount: this.recordedTrajectory.length,
+      recordDuration: Number(this.recordTimer.toFixed(1)),
+      isReplayingDemo: this.isReplayingDemo,
     };
   }
 }
